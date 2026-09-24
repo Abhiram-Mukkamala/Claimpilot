@@ -8,7 +8,7 @@ class AuthStore {
   private listeners: Set<(user: User | null) => void> = new Set();
 
   constructor() {
-    const stored = localStorage.getItem('auth_user');
+    const stored = sessionStorage.getItem('auth_user');
     if (stored) {
       try {
         this.user = JSON.parse(stored);
@@ -32,13 +32,13 @@ class AuthStore {
       dob,
       role
     };
-    localStorage.setItem('auth_user', JSON.stringify(this.user));
+    sessionStorage.setItem('auth_user', JSON.stringify(this.user));
     this.notify();
   }
 
   logout() {
     this.user = null;
-    localStorage.removeItem('auth_user');
+    sessionStorage.removeItem('auth_user');
     this.notify();
   }
 

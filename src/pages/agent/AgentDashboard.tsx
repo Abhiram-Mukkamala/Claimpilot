@@ -68,7 +68,7 @@ export const AgentDashboard = () => {
       {/* ── KPI cards ── */}
       <div className="kpi-grid">
         {kpis.map(kpi => (
-          <div key={kpi.label} className="kpi-card" style={{
+          <div key={kpi.label} className="kpi-card ambient-glow-card" style={{
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-md)',

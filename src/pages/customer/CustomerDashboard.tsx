@@ -68,7 +68,7 @@ export const CustomerDashboard = () => {
             </div>
             <div>
               <h2 className="text-lg">Request New Claim</h2>
-              <p className="text-sm text-muted">Start a new accident, theft, or natural event claim</p>
+              <p className="text-sm text-muted">Start a new accident, fire, or natural event claim</p>
             </div>
           </div>
           <ChevronRight size={24} color="var(--text-secondary)" />

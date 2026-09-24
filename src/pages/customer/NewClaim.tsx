@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { claimsApi } from '../../services/claimsApi';
 import { Card } from '../../components/ui/Card';
 import { Upload, X, ChevronRight, Car, AlertTriangle, Flame, CloudLightning, HelpCircle, Video, FileText, CheckCircle2 } from 'lucide-react';
@@ -50,6 +50,10 @@ interface UploadedVideo {
 
 export const NewClaim = () => {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
+  const params = new URLSearchParams(routerLocation.search);
+  const initialType = params.get('type') || 'Accident';
+
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
   const prevStepRef = useRef<Step>(1);
@@ -57,7 +61,7 @@ export const NewClaim = () => {
   const noticeRef = useRef<HTMLDivElement>(null);
 
   // Form State
-  const [claimType, setClaimType] = useState('Accident');
+  const [claimType, setClaimType] = useState(initialType);
   const [policyNumber, setPolicyNumber] = useState('');
   const [incidentDate, setIncidentDate] = useState('');
   const [location, setLocation] = useState('');
@@ -289,7 +293,6 @@ export const NewClaim = () => {
 
   const typeOptions = [
     { id: 'Accident', icon: <Car size={24} /> },
-    { id: 'Theft', icon: <HelpCircle size={24} /> },
     { id: 'Fire', icon: <Flame size={24} /> },
     { id: 'Natural Event', icon: <CloudLightning size={24} /> },
   ];

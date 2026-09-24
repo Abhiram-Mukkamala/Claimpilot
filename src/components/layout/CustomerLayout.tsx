@@ -314,14 +314,14 @@ export const CustomerLayout: React.FC = () => {
                     marginTop: '3rem',
                   }}>
                     {[
-                      { label: 'Collision', sub: 'Accident damage' },
-                      { label: 'Theft', sub: 'Vehicle theft' },
-                      { label: 'Natural Event', sub: 'Flood, fire, etc.' },
+                      { label: 'Collision', sub: 'Accident damage', type: 'Accident' },
+                      { label: 'Fire', sub: 'Vehicle fire', type: 'Fire' },
+                      { label: 'Natural Event', sub: 'Flood, earthquake, etc.', type: 'Natural Event' },
                     ].map(item => (
                       <Link
                         key={item.label}
-                        to="/customer/new-claim"
-                        className="interactive-card customer-quick-card"
+                        to={`/customer/new-claim?type=${encodeURIComponent(item.type)}`}
+                        className="interactive-card customer-quick-card ambient-glow-card"
                         style={{
                           padding: '1.5rem',
                           textAlign: 'left',

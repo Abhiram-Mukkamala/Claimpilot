@@ -16,6 +16,7 @@ export const ClaimAnalysis = () => {
   const [analysis, setAnalysis] = useState<DamageAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedDamage, setSelectedDamage] = useState<DamageArea | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +27,11 @@ export const ClaimAnalysis = () => {
       ]).then(([claimData, analysisData]) => {
         setClaim(claimData || null);
         setAnalysis(analysisData);
+        if (claimData?.images?.length) {
+          setSelectedImage(claimData.images[0]);
+        } else if (analysisData?.imageUrl) {
+          setSelectedImage(analysisData.imageUrl);
+        }
         setLoading(false);
       });
     }
@@ -66,10 +72,57 @@ export const ClaimAnalysis = () => {
                 <h3 className="text-lg font-bold flex items-center gap-sm"><Zap size={18} color="var(--accent-primary)" /> AI Damage Assessment</h3>
               </div>
               <DamageViewer
-                analysis={analysis}
+                analysis={{ ...analysis, imageUrl: selectedImage || analysis.imageUrl }}
                 selectedDamageId={selectedDamage?.id}
                 onSelectDamage={setSelectedDamage}
               />
+              {/* Evidence Gallery Switcher */}
+              {claim.images && claim.images.length > 0 && (
+                <div className="p-md pt-3 border-t mt-3" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs text-muted font-bold uppercase mb-2">Uploaded Photos ({claim.images.length})</p>
+                  <div className="flex gap-sm overflow-x-auto">
+                    {claim.images.map((img, i) => (
+                      <img
+                        key={i}
+                        src={img}
+                        alt={`Evidence ${i + 1}`}
+                        onClick={() => setSelectedImage(img)}
+                        style={{
+                          width: '72px',
+                          height: '54px',
+                          objectFit: 'cover',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          border: (selectedImage === img || (!selectedImage && i === 0)) ? '2px solid var(--accent)' : '2px solid transparent',
+                          opacity: (selectedImage === img || (!selectedImage && i === 0)) ? 1 : 0.5,
+                          transition: 'all 0.15s ease-in-out',
+                          flexShrink: 0
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Video Evidence Section */}
+              {claim.videos && claim.videos.length > 0 && (
+                <div className="p-md pt-2">
+                  <p className="text-xs text-muted font-bold uppercase mb-2">Uploaded Videos ({claim.videos.length})</p>
+                  <div className="flex gap-sm overflow-x-auto">
+                    {claim.videos.map((vid, i) => (
+                      <video
+                        key={i}
+                        src={vid}
+                        controls
+                        style={{
+                          height: '90px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
           ) : (
             <Card className="flex flex-col items-center justify-center gap-md text-muted" style={{ minHeight: '400px' }}>

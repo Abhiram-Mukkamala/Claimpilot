@@ -5,17 +5,17 @@ import { authStore } from '../store/authStore';
 const STORAGE_KEY = 'claimpilot_mock_claims';
 let mockClaims: Claim[] = [];
 try {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = sessionStorage.getItem(STORAGE_KEY);
   if (stored) mockClaims = JSON.parse(stored);
   else mockClaims = [...initialMockClaims];
 } catch (e) {
   mockClaims = [...initialMockClaims];
 }
 
-const saveClaims = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(mockClaims));
+const saveClaims = () => sessionStorage.setItem(STORAGE_KEY, JSON.stringify(mockClaims));
 
 export const resetClaims = () => {
-  localStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(STORAGE_KEY);
   mockClaims.length = 0;
   mockClaims.push(...initialMockClaims);
 };
