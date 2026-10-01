@@ -7,7 +7,7 @@ import type { DamageAnalysis, DamageArea } from '../../types/analysis';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DamageViewer } from '../../components/ui/DamageViewer';
-import { ArrowLeft, ShieldAlert, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Zap, AlertTriangle, CheckCircle, Box } from 'lucide-react';
 import { useGSAP, animateFadeIn, animateStagger } from '../../lib/gsap';
 
 export const ClaimAnalysis = () => {
@@ -49,7 +49,7 @@ export const ClaimAnalysis = () => {
   if (!claim) return <div className="text-muted p-xl text-center">Claim not found.</div>;
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-lg max-w-5xl mx-auto" style={{ maxWidth: '1200px', marginRight: '0.1rem', paddingBottom: '4rem' }}>
+    <div ref={containerRef} className="flex flex-col gap-lg max-w-5xl mx-auto" style={{ maxWidth: '1800px', marginLeft: '0.8rem', paddingBottom: '8rem' }}>
       <div className="analysis-header flex items-center gap-md page-header mb-4">
         <Link to="/customer" className="btn-secondary btn-sm" style={{ padding: '0.5rem' }}>
           <ArrowLeft size={16} />
@@ -63,24 +63,51 @@ export const ClaimAnalysis = () => {
         </div>
       </div>
 
-      <div className="flex gap-xl" style={{ flexWrap: 'wrap' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-xl items-start">
         {/* Left Column: Analysis Visuals */}
-        <div style={{ flex: '5', minWidth: '800px' }} className="flex flex-col gap-md">
+        <div className="flex flex-col gap-md lg:sticky lg:top-6">
           {analysis ? (
-            <Card style={{ padding: '0.5rem' }}>
-              <div className="p-md mb-2 flex justify-between items-center">
-                <h3 className="text-lg font-bold flex items-center gap-sm"><Zap size={18} color="var(--accent-primary)" /> AI Damage Assessment</h3>
-              </div>
+            <Card style={{ padding: '0.5rem', overflow: 'hidden' }}>
               <DamageViewer
                 analysis={{ ...analysis, imageUrl: selectedImage || analysis.imageUrl }}
                 selectedDamageId={selectedDamage?.id}
                 onSelectDamage={setSelectedDamage}
               />
-              {/* Evidence Gallery Switcher */}
+            </Card>
+          ) : (
+            <Card className="flex flex-col items-center justify-center gap-md text-muted" style={{ minHeight: '400px' }}>
+              <ShieldAlert size={48} opacity={0.5} />
+              <div className="text-center">
+                <p className="font-bold text-lg text-primary">Analyzing your vehicle</p>
+                <p className="text-sm">Reviewing uploaded images...</p>
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Right Column: Details */}
+        <div className="flex flex-col gap-md">
+          {/* 3D Mesh Viewer CTA */}
+          <Link to={`/customer/claims/${id}/mesh`} className="interactive-card block p-md" style={{ background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.1)', textDecoration: 'none', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
+            <div className="flex items-center gap-md">
+              <div style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '0.8rem', borderRadius: '50%', color: 'var(--text-primary)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <Box size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold mb-1 m-0 flex items-center gap-sm" style={{ color: 'var(--text-primary)' }}>Explore 3D Damage Mesh <Badge variant="neutral">Beta</Badge></h3>
+                <p className="text-xs text-muted m-0">Click here to view an interactive 3D spatial model of the vehicle damage assessment.</p>
+              </div>
+            </div>
+          </Link>
+
+          {/* Media Galleries */}
+          {((claim.images && claim.images.length > 0) || (claim.videos && claim.videos.length > 0)) && (
+            <Card>
+              <h3 className="text-sm text-muted uppercase font-bold mb-4">Evidence Media</h3>
               {claim.images && claim.images.length > 0 && (
-                <div className="p-md pt-3 border-t mt-3" style={{ borderColor: 'var(--border)' }}>
+                <div className="mb-4">
                   <p className="text-xs text-muted font-bold uppercase mb-2">Uploaded Photos ({claim.images.length})</p>
-                  <div className="flex gap-sm overflow-x-auto">
+                  <div className="flex gap-sm overflow-x-auto pb-2">
                     {claim.images.map((img, i) => (
                       <img
                         key={i}
@@ -103,11 +130,11 @@ export const ClaimAnalysis = () => {
                   </div>
                 </div>
               )}
-              {/* Video Evidence Section */}
+
               {claim.videos && claim.videos.length > 0 && (
-                <div className="p-md pt-2">
+                <div>
                   <p className="text-xs text-muted font-bold uppercase mb-2">Uploaded Videos ({claim.videos.length})</p>
-                  <div className="flex gap-sm overflow-x-auto">
+                  <div className="flex gap-sm overflow-x-auto pb-2">
                     {claim.videos.map((vid, i) => (
                       <video
                         key={i}
@@ -124,21 +151,10 @@ export const ClaimAnalysis = () => {
                 </div>
               )}
             </Card>
-          ) : (
-            <Card className="flex flex-col items-center justify-center gap-md text-muted" style={{ minHeight: '400px' }}>
-              <ShieldAlert size={48} opacity={0.5} />
-              <div className="text-center">
-                <p className="font-bold text-lg text-primary">Analyzing your vehicle</p>
-                <p className="text-sm">Reviewing uploaded images...</p>
-              </div>
-            </Card>
           )}
-        </div>
 
-        {/* Right Column: Details */}
-        <div style={{ flex: '3', minWidth: '300px' }} className="flex flex-col gap-md">
           <Card>
-            <h3 className="text-sm text-muted uppercase font-bold mb-4">AI Assessment</h3>
+            <h3 className="text-sm text-muted uppercase font-bold flex items-center gap-sm mb-4"><Zap size={16} color="var(--accent-primary)" /> AI Assessment</h3>
             {analysis ? (
               <div className="flex flex-col gap-md">
                 <p className="text-sm"><strong>{analysis.damages.length}</strong> damaged areas detected.</p>

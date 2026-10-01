@@ -330,7 +330,7 @@ export const Login: React.FC = () => {
       if (otpContentRef.current) {
         gsap.to(otpContentRef.current, { scale: 0.95, opacity: 0, duration: 0.3, ease: 'power2.in' });
       }
-      
+
       if (otpModalRef.current) {
         gsap.to(otpModalRef.current, {
           opacity: 0,
@@ -340,7 +340,7 @@ export const Login: React.FC = () => {
           onComplete: () => {
             setShowOtp(false);
             authStore.login(email, name || 'Demo User', phone || undefined, dob || undefined);
-            
+
             // Add a slight pause before starting the login animation
             setTimeout(() => {
               startTransition('customer');
@@ -538,7 +538,7 @@ export const Login: React.FC = () => {
 
     // Proceed with Mock Auth
     const isAgentLogin = !isSignUp && email.toLowerCase() === 'agent@claimpilot.ai';
-    
+
     if (isAgentLogin) {
       authStore.login(email, name || 'Demo User', phone || undefined, dob || undefined);
       startTransition('agent');
@@ -623,6 +623,7 @@ export const Login: React.FC = () => {
         style={{
           minHeight: '100vh',
           display: 'flex',
+          position: 'relative',
         }}
       >
         {/* Left Column — Branding */}
@@ -633,20 +634,23 @@ export const Login: React.FC = () => {
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            padding: '3rem',
-            borderRight: '1px solid var(--border)',
+            padding: '3.5rem',
+            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+            position: 'relative',
+            zIndex: 1,
           }}
         >
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div ref={logoItemRef} className="login-branding-item" style={{ marginBottom: '2.5rem' }}>
               <h1 ref={logoTextRef} style={{
-                fontSize: '3rem',
+                fontSize: '3.25rem',
                 fontWeight: 700,
                 letterSpacing: '-0.04em',
                 color: 'var(--text-primary)',
                 lineHeight: 1,
-                marginBottom: '0.75rem',
-                minHeight: '3rem', // Prevents layout shift when text is deleted
+                marginBottom: '0.85rem',
+                minHeight: '3.25rem', // Prevents layout shift when text is deleted
+                textShadow: '0 2px 20px rgba(0, 0, 0, 0.8)',
               }}>
                 ClaimPilot AI
               </h1>
@@ -663,11 +667,11 @@ export const Login: React.FC = () => {
             <div
               className="login-branding-item"
               style={{
-                borderLeft: '1px solid var(--border)',
+                borderLeft: '2px solid rgba(255, 255, 255, 0.12)',
                 paddingLeft: '1.25rem',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '0.75rem',
+                gap: '0.85rem',
               }}
             >
               {[
@@ -677,16 +681,17 @@ export const Login: React.FC = () => {
               ].map((feature) => (
                 <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                   <span style={{
-                    width: '5px',
-                    height: '5px',
+                    width: '6px',
+                    height: '6px',
                     borderRadius: '50%',
                     backgroundColor: 'var(--accent)',
                     flexShrink: 0,
+                    boxShadow: '0 0 8px rgba(34, 197, 94, 0.6)',
                   }} />
                   <span style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: '0.6875rem',
-                    color: 'var(--text-secondary)',
+                    color: 'rgba(240, 240, 245, 0.85)',
                     letterSpacing: '0.06em',
                   }}>
                     {feature}
@@ -698,18 +703,18 @@ export const Login: React.FC = () => {
 
           <div ref={statusRef} style={{
             paddingTop: '1.5rem',
-            borderTop: '1px solid var(--border)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
           }}>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-secondary)', opacity: 0.5 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-secondary)', opacity: 0.7 }}>
               SYSTEM STATUS: <span style={{ color: 'var(--accent)' }}>OPERATIONAL</span>
             </p>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-secondary)', opacity: 0.5, marginTop: '0.25rem' }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-secondary)', opacity: 0.7, marginTop: '0.25rem' }}>
               SECURE CONNECTION ESTABLISHED
             </p>
           </div>
         </div>
 
-        {/* Right Column — Login Form */}
+        {/* Right Column — Login Form with Liquid Glass Card */}
         <div
           ref={formColRef}
           className="login-form-col"
@@ -719,12 +724,24 @@ export const Login: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             padding: '3rem',
+            position: 'relative',
+            zIndex: 1,
           }}
         >
-          <div style={{
-            width: '100%',
-            maxWidth: '380px',
-          }}>
+          <div
+            className="login-glass-card"
+            style={{
+              width: '100%',
+              maxWidth: '430px',
+              backgroundColor: 'rgba(16, 16, 22, 0.32)',
+              backdropFilter: 'blur(5px) saturate(100%)',
+              WebkitBackdropFilter: 'blur(5px) saturate(120%)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '2.5rem',
+              boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 24px rgba(255, 255, 255, 0.02)',
+            }}
+          >
             <div style={{ marginBottom: '2rem' }}>
               <h2 style={{
                 fontSize: '1.25rem',
@@ -926,33 +943,36 @@ export const Login: React.FC = () => {
       </div>
 
       {showOtp && (
-        <div 
+        <div
           ref={otpModalRef}
           style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.7)',
-          backdropFilter: 'blur(12px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-        }}>
-          <div 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}>
+          <div
             ref={otpContentRef}
             style={{
-            position: 'relative',
-            backgroundColor: 'var(--bg-surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '2.5rem',
-            width: '100%',
-            maxWidth: '420px',
-            textAlign: 'center',
-          }}>
+              position: 'relative',
+              backgroundColor: 'rgba(16, 16, 22, 0.45)',
+              backdropFilter: 'blur(20px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '2.5rem',
+              width: '100%',
+              maxWidth: '420px',
+              textAlign: 'center',
+              boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.16)',
+            }}>
             <button
               onClick={closeOtp}
               aria-label="Close"

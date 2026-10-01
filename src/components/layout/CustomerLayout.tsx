@@ -141,7 +141,18 @@ export const CustomerLayout: React.FC = () => {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '1rem' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, borderRadius: 'var(--radius-xl)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', backdropFilter: 'blur(24px)' }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        borderRadius: 'var(--radius-xl)',
+        overflow: 'hidden',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+        background: 'rgba(14, 14, 20, 0.01)',
+        backdropFilter: 'blur(5px) saturate(100%)',
+        WebkitBackdropFilter: 'blur(5px) saturate(120%)',
+        boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
+      }}>
         <TopBar />
         <div style={{ display: 'flex', flex: 1, height: 'calc(100vh - 72px - 2rem)', overflow: 'hidden', position: 'relative' }}>
           {/* ── Sidebar ── */}

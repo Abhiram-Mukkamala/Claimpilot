@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { claimsApi } from '../../services/claimsApi';
 import { Card } from '../../components/ui/Card';
-import { Upload, X, ChevronRight, Car, AlertTriangle, Flame, CloudLightning, HelpCircle, Video, FileText, CheckCircle2 } from 'lucide-react';
+import { Upload, X, ChevronRight, Car, AlertTriangle, Flame, CloudLightning, Video, FileText, CheckCircle2 } from 'lucide-react';
 import { useGSAP, animateStep, animateFadeIn } from '../../lib/gsap';
 
 type Step = 1 | 2 | 3 | 4;

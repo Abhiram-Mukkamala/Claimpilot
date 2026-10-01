@@ -90,16 +90,16 @@ export const CustomerDashboard = () => {
               {getStatusBadge(activeClaim.status)}
             </div>
 
-            <div style={{ padding: '1.5rem', backgroundColor: 'var(--bg-primary)' }}>
+            <div style={{ padding: '1.5rem', backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
               <div className="flex justify-between items-center relative mb-4">
                 {/* Progress Bar Track */}
-                <div style={{ position: 'absolute', top: '50%', left: '10%', right: '10%', height: '2px', backgroundColor: 'var(--border-color)', zIndex: 0 }} />
+                <div style={{ position: 'absolute', top: '50%', left: '10%', right: '10%', height: '2px', backgroundColor: 'var(--border)', zIndex: 0 }} />
 
                 {getProgress(activeClaim.status).steps.map((step, idx) => {
                   const isActive = getProgress(activeClaim.status).currentIndex >= idx;
                   return (
-                    <div key={idx} className="flex flex-col items-center gap-sm relative" style={{ zIndex: 1, backgroundColor: 'var(--bg-primary)', padding: '0 1rem' }}>
-                      <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: isActive ? 'var(--accent-primary)' : 'var(--border-color)', border: '2px solid var(--bg-primary)' }} />
+                    <div key={idx} className="flex flex-col items-center gap-sm relative" style={{ zIndex: 1, backgroundColor: 'rgba(20, 20, 28, 0.7)', backdropFilter: 'blur(8px)', borderRadius: 'var(--radius-sm)', padding: '0.25rem 0.75rem' }}>
+                      <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: isActive ? 'var(--accent-primary)' : 'var(--border-strong)' }} />
                       <span className="text-xs" style={{ color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{step}</span>
                     </div>
                   );

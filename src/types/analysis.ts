@@ -16,6 +16,7 @@ export interface DamageArea {
   severity: string;
   confidence: number;
   location: string;
+  depthMm?: number;
   boundingBox: BoundingBox;
   estimatedRepairCost: EstimatedCost;
 }
