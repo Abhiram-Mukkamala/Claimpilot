@@ -172,7 +172,8 @@ export const Login: React.FC = () => {
       scale: 1,
       opacity: 1,
       duration: 0.8,
-      ease: 'expo.inOut'
+      ease: 'expo.inOut',
+      clearProps: 'filter'
     }, 0.6);
 
     // 4. Shrink back to initial pill
@@ -181,10 +182,11 @@ export const Login: React.FC = () => {
       height: '48px',
       top: '24px',
       borderRadius: '24px',
-      backdropFilter: 'blur(12px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+      backdropFilter: '',
+      backgroundColor: '',
       duration: 0.8,
-      ease: 'expo.inOut'
+      ease: 'expo.inOut',
+      clearProps: 'all'
     }, 0.6);
   });
 
@@ -304,7 +306,9 @@ export const Login: React.FC = () => {
 
       if (e.deltaY > 0) {
         e.preventDefault();
-        startAboutTransition();
+        if (window.innerWidth > 900) {
+          startAboutTransition();
+        }
       }
     };
 
@@ -566,8 +570,12 @@ export const Login: React.FC = () => {
           padding: transitionState === 'about' ? '0 2.5rem' : '0'
         }}>
           {transitionState === 'idle' && (
-            <div style={{ margin: '0 auto', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }}>
-              Want to know about us? Scroll ↓
+            <div 
+              onClick={() => { if (window.innerWidth <= 900) startAboutTransition(); }}
+              style={{ margin: '0 auto', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)', cursor: 'pointer', pointerEvents: 'auto' }}
+            >
+              <span className="hide-on-mobile">Want to know about us? Scroll ↓</span>
+              <span className="show-on-mobile" style={{ display: 'none' }}>Want to know about us? Tap here</span>
             </div>
           )}
           {transitionState === 'about' && (

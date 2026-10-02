@@ -1649,11 +1649,7 @@ a.btn-ghost:hover {
   justify-content: center;
 }
 
-[data-theme="dark"] .glass-transition-layer {
-  background: rgba(20, 20, 20, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.1), inset 0 -1px 1px rgba(0, 0, 0, 0.2);
-}
+
 
 .glass-nav-bar {
   position: absolute;
@@ -1727,4 +1723,68 @@ a.btn-ghost:hover {
   background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================
+   RESPONSIVE DESIGN (GLOBAL)
+   ============================================================ */
+@media (max-width: 900px) {
+  /* Login Layout */
+  .login-layout {
+    flex-direction: column !important;
+    overflow-x: hidden;
+  }
+  .login-branding {
+    flex: none !important;
+    padding: 6rem 2rem 2rem 2rem !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    align-items: center !important;
+    text-align: center;
+  }
+  .login-branding-item {
+    border-left: none !important;
+    padding-left: 0 !important;
+    align-items: center;
+  }
+  .login-branding h1 {
+    font-size: 2.25rem !important;
+    min-height: 2.25rem !important;
+  }
+  .login-form-col {
+    padding: 2rem 1rem !important;
+    align-items: flex-start !important;
+  }
+  .login-glass-card {
+    padding: 1.5rem !important;
+  }
+  
+  /* Glass Nav & About Pill */
+  .glass-transition-layer {
+    max-width: 90vw !important;
+  }
+  .glass-nav-links {
+    display: flex !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 55vw;
+    scrollbar-width: none; /* Firefox */
+  }
+  .glass-nav-links::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+  }
+  .hide-on-mobile {
+    display: none !important;
+  }
+  .show-on-mobile {
+    display: inline !important;
+  }
+  
+  /* About Page */
+  .about-section {
+    padding: 4rem 1.5rem !important;
+  }
+  .about-hero-title {
+    font-size: 2.5rem !important;
+  }
 }
