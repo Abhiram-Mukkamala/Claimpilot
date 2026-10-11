@@ -1,158 +1,131 @@
-"""ClaimPilot Local Smoke Test
-Validates the complete demo path:
-Customer Login -> Submit Claim -> Upload Image -> Poll AI Analysis -> Agent Review
+"""ClaimPilot demo smoke test.
 
-Usage:
-  python smoke_test.py
-
-Required Environment Variables:
-  CUSTOMER_EMAIL
-  CUSTOMER_PASSWORD
-  AGENT_EMAIL
-  AGENT_PASSWORD
-
-Optional Environment Variables:
-  BASE_URL        (default: http://localhost:8000/api/v1)
-  POLICY_NUMBER   (default: DEMO-POL-001)
-  IMAGE_PATH      (default: frontend/ClaimPilot/src/assets/hero.png)
-  OTP_CODE        (if provided, bypasses interactive stdin prompt)
+Configuration is provided only through SMOKE_* environment variables.
+This script does not print credentials, tokens, signed URLs, or response bodies.
 """
 
+from __future__ import annotations
+
+import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 import httpx
 
-# -----------------------------------------------------------------------------
-# 1. Configuration & Argument Extraction
-# -----------------------------------------------------------------------------
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000/api/v1").rstrip("/")
-CUSTOMER_EMAIL = os.getenv("CUSTOMER_EMAIL")
-CUSTOMER_PASSWORD = os.getenv("CUSTOMER_PASSWORD")
-AGENT_EMAIL = os.getenv("AGENT_EMAIL")
-AGENT_PASSWORD = os.getenv("AGENT_PASSWORD")
-POLICY_NUMBER = os.getenv("POLICY_NUMBER", "DEMO-POL-001")
-IMAGE_PATH_ENV = os.getenv("IMAGE_PATH")
-OTP_CODE_ENV = os.getenv("OTP_CODE")
 
-missing_vars = []
-if not CUSTOMER_EMAIL:
-    missing_vars.append("CUSTOMER_EMAIL")
-if not CUSTOMER_PASSWORD:
-    missing_vars.append("CUSTOMER_PASSWORD")
-if not AGENT_EMAIL:
-    missing_vars.append("AGENT_EMAIL")
-if not AGENT_PASSWORD:
-    missing_vars.append("AGENT_PASSWORD")
-
-if missing_vars:
-    print(f"[ERROR] Missing required environment variable(s): {', '.join(missing_vars)}")
-    print("Please set them before executing smoke_test.py. Example:")
-    print("  $env:CUSTOMER_EMAIL='customer@example.com'")
-    print("  $env:CUSTOMER_PASSWORD='...'")
-    print("  $env:AGENT_EMAIL='agent@claimpilot.ai'")
-    print("  $env:AGENT_PASSWORD='...'")
-    sys.exit(1)
+REQUIRED_VARS = (
+    "SMOKE_BASE_URL",
+    "SMOKE_CUSTOMER_EMAIL",
+    "SMOKE_CUSTOMER_PASSWORD",
+    "SMOKE_AGENT_EMAIL",
+    "SMOKE_AGENT_PASSWORD",
+    "SMOKE_IMAGE_DIR",
+)
+BASE_URL = os.getenv("SMOKE_BASE_URL", "").rstrip("/")
+CUSTOMER_EMAIL = os.getenv("SMOKE_CUSTOMER_EMAIL")
+CUSTOMER_PASSWORD = os.getenv("SMOKE_CUSTOMER_PASSWORD")
+AGENT_EMAIL = os.getenv("SMOKE_AGENT_EMAIL")
+AGENT_PASSWORD = os.getenv("SMOKE_AGENT_PASSWORD")
+IMAGE_DIR = os.getenv("SMOKE_IMAGE_DIR")
+POLICY_NUMBER = "DEMO-POL-001"
+ANALYSIS_TIMEOUT_SECONDS = 120
 
 
-# -----------------------------------------------------------------------------
-# 2. Helpers (Secrets Rule Compliant: prints KEYS and status codes only)
-# -----------------------------------------------------------------------------
-def log_response(stage: str, resp: httpx.Response, extra: Optional[str] = None):
+def redact(value: Any) -> Any:
+    """Redact sensitive values while preserving response structure."""
+    if isinstance(value, dict):
+        sensitive = re.compile(
+            r"token|password|email|phone|name|signed.?url|storage.?path|file.?path|authorization",
+            re.IGNORECASE,
+        )
+        return {
+            str(key): f"<REDACTED:{str(key).lower()}>"
+            if sensitive.search(str(key)) and item is not None
+            else redact(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    if isinstance(value, str):
+        value = re.sub(r"https?://\S+", "<REDACTED:url>", value)
+        value = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "<REDACTED:email>", value)
+        value = re.sub(r"(?i)(bearer\s+|access_token[\"']?\s*[:=]\s*[\"']?)[^,\s\"'}]+", r"\1<REDACTED:token>", value)
+        value = re.sub(r"(?i)(password[\"']?\s*[:=]\s*[\"']?)[^,\s\"'}]+", r"\1<REDACTED:password>", value)
+        return value
+    return value
+
+
+def excerpt(response: httpx.Response) -> str:
     try:
-        data = resp.json()
-        keys = list(data.keys()) if isinstance(data, dict) else [f"array_len_{len(data)}"]
-    except Exception:
-        keys = ["<non-json response>"]
-
-    extra_str = f" | {extra}" if extra else ""
-    print(f"[{stage}] HTTP {resp.status_code} | Keys: {keys}{extra_str}")
+        body = redact(response.json())
+        text = json.dumps(body, separators=(",", ":"))
+    except (ValueError, TypeError):
+        text = redact(response.text)
+    return text[:240]
 
 
-def login_flow(client: httpx.Client, email: str, password: str, role_name: str) -> str:
-    """Executes Step 1 password verification and Step 2 OTP verification if mandated."""
-    print(f"\n--- Logging in {role_name} ---")
-    login_resp = client.post(
+def check(name: str, passed: bool, response: httpx.Response | None = None, detail: str = "") -> bool:
+    if passed:
+        print(f"[PASS] {name}")
+        return True
+    suffix = f" | {detail}" if detail else ""
+    if response is not None:
+        suffix += f" | HTTP {response.status_code} | {excerpt(response)}"
+    print(f"[FAIL] {name}{suffix}")
+    return False
+
+
+def request_ok(name: str, response: httpx.Response, expected: set[int]) -> bool:
+    return check(
+        name,
+        response.status_code in expected,
+        response=response if response.status_code not in expected else None,
+    )
+
+
+def login(client: httpx.Client, email: str, password: str, role: str) -> str | None:
+    response = client.post(
         f"{BASE_URL}/auth/login",
         json={"email": email, "password": password},
     )
-    log_response(f"{role_name} Step 1 Login", login_resp)
-
-    if login_resp.status_code >= 400:
-        print(f"[FAIL] {role_name} login failed with status {login_resp.status_code}")
-        sys.exit(1)
-
-    login_data = login_resp.json()
-    if login_data.get("requires_otp"):
-        otp = OTP_CODE_ENV or input(f"Enter 6-digit OTP received for {email}: ").strip()
-        verify_resp = client.post(
-            f"{BASE_URL}/auth/otp/verify",
-            json={"identifier": email, "otp_code": otp, "channel": "email"},
+    if response.status_code not in {200, 201}:
+        check(f"{role} login", False, response=response)
+        return None
+    data = response.json()
+    token = data.get("access_token")
+    if data.get("requires_otp"):
+        check(
+            f"{role} login",
+            False,
+            response=response,
+            detail="OTP required; no OTP environment variable is permitted by this smoke test",
         )
-        log_response(f"{role_name} Step 2 OTP Verify", verify_resp)
-        if verify_resp.status_code >= 400:
-            print(f"[FAIL] {role_name} OTP verification failed.")
-            sys.exit(1)
-        token = verify_resp.json().get("access_token")
-    else:
-        token = login_data.get("access_token")
-
-    if not token:
-        print(f"[FAIL] No access token received for {role_name}.")
-        sys.exit(1)
-
+        return None
+    check(f"{role} login", bool(token), response=response if not token else None)
     return token
 
 
-def resolve_image_file() -> tuple[bytes, str, str]:
-    """Resolves test image bytes, filename, and mime type."""
-    candidate_paths = []
-    if IMAGE_PATH_ENV:
-        candidate_paths.append(Path(IMAGE_PATH_ENV))
-
-    backend_dir = Path(__file__).resolve().parent
-    repo_root = backend_dir.parent.parent
-
-    candidate_paths.extend([
-        backend_dir.parent / "frontend" / "ClaimPilot" / "src" / "assets" / "hero.png",
-        repo_root / "frontend" / "ClaimPilot" / "src" / "assets" / "hero.png",
-    ])
-
-    for p in candidate_paths:
-        if p.exists() and p.is_file():
-            mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
-            return p.read_bytes(), p.name, mime
-
-    # Fallback minimal 1x1 PNG bytes if no file found on disk
-    dummy_png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDAT\x08\x99c`\x00\x00"
-        b"\x00\x02\x00\x01\xe5w$o\x00\x00\x00\x00IEND\xaeB`\x82"
+def image_files() -> list[Path]:
+    if not IMAGE_DIR:
+        return []
+    directory = Path(IMAGE_DIR)
+    if not directory.is_dir():
+        return []
+    return sorted(
+        path for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
     )
-    return dummy_png, "smoke_test_image.png", "image/png"
 
 
-# -----------------------------------------------------------------------------
-# 3. Main End-to-End Execution
-# -----------------------------------------------------------------------------
-def main():
-    print(f"============================================================")
-    print(f"ClaimPilot End-to-End Smoke Test")
-    print(f"Target Base URL: {BASE_URL}")
-    print(f"Target Policy  : {POLICY_NUMBER}")
-    print(f"============================================================")
-
-    with httpx.Client(timeout=30.0) as client:
-        # Step 1: Customer Login
-        customer_token = login_flow(client, CUSTOMER_EMAIL, CUSTOMER_PASSWORD, "Customer")
-        cust_headers = {"Authorization": f"Bearer {customer_token}"}
-
-        # Step 2: Create Claim
-        print("\n--- Submitting Claim ---")
-        claim_payload = {
+def create_claim(client: httpx.Client, headers: dict[str, str]) -> httpx.Response:
+    return client.post(
+        f"{BASE_URL}/claims",
+        headers=headers,
+        json={
             "policy_number": POLICY_NUMBER,
             "incident_type": "Accident",
             "vehicle_name": "Honda City 2022",
@@ -165,131 +138,196 @@ def main():
             "driver_name": "Demo Policyholder",
             "driver_dl_number": "MH1220110012345",
             "claimed_amount": 0.0,
-        }
+        },
+    )
 
-        create_resp = client.post(f"{BASE_URL}/claims", json=claim_payload, headers=cust_headers)
-        log_response("Create Claim", create_resp)
-        if create_resp.status_code >= 400:
-            print(f"[FAIL] Claim creation rejected: HTTP {create_resp.status_code}")
-            sys.exit(1)
 
-        create_data = create_resp.json()
-        claim_id = create_data.get("claim_id") or (create_data.get("claim") or {}).get("id")
-        if not claim_id:
-            print("[FAIL] Response missing claim_id primary key.")
-            sys.exit(1)
+def upload_image(
+    client: httpx.Client,
+    headers: dict[str, str],
+    claim_id: str,
+    image: Path,
+) -> bool:
+    content_type = "image/png" if image.suffix.lower() == ".png" else "image/jpeg"
+    image_bytes = image.read_bytes()
+    presign = client.post(
+        f"{BASE_URL}/storage/presigned-url",
+        headers=headers,
+        json={
+            "file_name": image.name,
+            "file_type": content_type,
+            "category": "photo",
+            "file_size_bytes": len(image_bytes),
+        },
+    )
+    if not request_ok("Request evidence upload URL", presign, {200}):
+        return False
+    data = presign.json()
+    upload_url = data.get("upload_url")
+    public_url = data.get("public_url")
+    storage_path = data.get("file_path")
+    if not all(isinstance(value, str) and value for value in (upload_url, public_url, storage_path)):
+        return check("Evidence upload URL response fields", False, response=presign)
+    uploaded = client.put(upload_url, content=image_bytes, headers={"Content-Type": content_type})
+    if not request_ok("Upload evidence image", uploaded, {200, 201}):
+        return False
+    catalog = client.post(
+        f"{BASE_URL}/storage/evidence",
+        headers=headers,
+        json={
+            "claim_id": claim_id,
+            "file_url": public_url,
+            "storage_path": storage_path,
+            "file_type": content_type,
+            "category": "photo",
+        },
+    )
+    return request_ok("Catalog evidence image", catalog, {200, 201})
 
-        # Step 3: Upload Evidence Image
-        print("\n--- Uploading Evidence Image ---")
-        image_bytes, image_name, image_mime = resolve_image_file()
 
-        presign_resp = client.post(
-            f"{BASE_URL}/storage/presigned-url",
-            json={
-                "file_name": image_name,
-                "file_type": image_mime,
-                "category": "photo",
-                "file_size_bytes": len(image_bytes),
-            },
-            headers=cust_headers,
+def claim_id_from(response: httpx.Response) -> str | None:
+    data = response.json()
+    claim = data.get("claim") or {}
+    return data.get("claim_id") or claim.get("id")
+
+
+def poll_analysis(
+    client: httpx.Client,
+    headers: dict[str, str],
+    claim_id: str,
+    check_name: str,
+) -> dict[str, Any] | None:
+    started = time.monotonic()
+    while time.monotonic() - started < ANALYSIS_TIMEOUT_SECONDS:
+        response = client.get(f"{BASE_URL}/claims/{claim_id}", headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            analysis = data.get("ai_analysis")
+            if isinstance(analysis, dict) and analysis.get("detected_damages") is not None:
+                check(check_name, True)
+                return data
+        time.sleep(3)
+    check(check_name, False, detail=f"analysis did not complete within {ANALYSIS_TIMEOUT_SECONDS}s")
+    return None
+
+
+def has_real_bbox(analysis: dict[str, Any]) -> bool:
+    damages = analysis.get("detected_damages")
+    if not isinstance(damages, list):
+        return False
+    for damage in damages:
+        if not isinstance(damage, dict):
+            continue
+        bbox = damage.get("bbox") or damage.get("bounding_box")
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            try:
+                if all(float(value) >= 0 for value in bbox):
+                    return True
+            except (TypeError, ValueError):
+                continue
+        if isinstance(bbox, dict) and all(key in bbox for key in ("x", "y", "width", "height")):
+            return True
+    return False
+
+
+def has_duplicate_flag(data: dict[str, Any]) -> bool:
+    analysis = data.get("ai_analysis") or {}
+    claim = data.get("claim") or {}
+    values = [
+        analysis.get("fraud_flags"),
+        analysis.get("fraud_indicators"),
+        claim.get("fraud_flags"),
+        claim.get("fraud_indicator"),
+        claim.get("risk_level"),
+    ]
+    text = json.dumps(values).lower()
+    return any(marker in text for marker in ("duplicate", "phash", "p_hash", "reused", "fraud"))
+
+
+def main() -> int:
+    missing = [name for name in REQUIRED_VARS if not os.getenv(name)]
+    if missing:
+        print(f"[FAIL] Missing required environment variable(s): {', '.join(missing)}")
+        return 1
+
+    files = image_files()
+    if not files:
+        print("[FAIL] SMOKE_IMAGE_DIR contains no supported image files")
+        return 1
+
+    results: list[bool] = []
+    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+        customer_token = login(client, CUSTOMER_EMAIL or "", CUSTOMER_PASSWORD or "", "Customer")
+        if not customer_token:
+            return 1
+        customer_headers = {"Authorization": f"Bearer {customer_token}"}
+
+        create = create_claim(client, customer_headers)
+        results.append(request_ok("Create claim against DEMO-POL-001", create, {201}))
+        if not results[-1]:
+            return 1
+        first_claim_id = claim_id_from(create)
+        results.append(check("Create claim response contains claim ID", bool(first_claim_id), response=create))
+        if not first_claim_id:
+            return 1
+
+        for image in files:
+            results.append(upload_image(client, customer_headers, first_claim_id, image))
+        if not all(results[-len(files):]):
+            return 1
+
+        first_data = poll_analysis(client, customer_headers, first_claim_id, "Poll first claim analysis (120s)")
+        if first_data is None:
+            return 1
+        first_analysis = first_data.get("ai_analysis") or {}
+        results.append(check("Analysis is not marked mock", first_analysis.get("mock") is not True))
+        results.append(check("Analysis contains a real damage bbox", has_real_bbox(first_analysis)))
+
+        duplicate_create = create_claim(client, customer_headers)
+        results.append(request_ok("Create second claim for duplicate-image check", duplicate_create, {201}))
+        if not results[-1]:
+            return 1
+        duplicate_claim_id = claim_id_from(duplicate_create)
+        results.append(check("Second claim response contains claim ID", bool(duplicate_claim_id), response=duplicate_create))
+        if not duplicate_claim_id:
+            return 1
+        results.append(upload_image(client, customer_headers, duplicate_claim_id, files[0]))
+        duplicate_data = poll_analysis(
+            client,
+            customer_headers,
+            duplicate_claim_id,
+            "Poll duplicate claim analysis (120s)",
         )
-        log_response("Presigned URL", presign_resp)
-        if presign_resp.status_code >= 400:
-            print(f"[FAIL] Could not generate presigned upload URL.")
-            sys.exit(1)
-
-        presign_data = presign_resp.json()
-        upload_url = presign_data.get("upload_url")
-        public_url = presign_data.get("public_url")
-        storage_path = presign_data.get("file_path", "")
-
-        # Binary upload to destination URL
-        try:
-            put_resp = httpx.put(upload_url, content=image_bytes, headers={"Content-Type": image_mime}, timeout=20.0)
-            print(f"[Storage Upload] HTTP {put_resp.status_code}")
-        except Exception as upload_err:
-            print(f"[WARN] Direct storage upload encountered error: {upload_err}. Proceeding with evidence catalog.")
-
-        # Catalog evidence in database
-        catalog_resp = client.post(
-            f"{BASE_URL}/storage/evidence",
-            json={
-                "claim_id": claim_id,
-                "file_url": public_url,
-                "storage_path": storage_path,
-                "file_type": image_mime,
-                "category": "photo",
-            },
-            headers=cust_headers,
+        results.append(
+            check(
+                "Duplicate image produces pHash/fraud flag",
+                duplicate_data is not None and has_duplicate_flag(duplicate_data),
+                detail="no duplicate, pHash, reused-image, or fraud marker returned",
+            )
         )
-        log_response("Catalog Evidence", catalog_resp)
 
-        # Step 4: Poll until AI Analysis finishes (Timeout: 120s)
-        print("\n--- Polling AI Damage & Fraud Analysis (Max 120s) ---")
-        start_time = time.time()
-        timeout_seconds = 120
-        analysis_finished = False
-        final_claim_data: Dict[str, Any] = {}
-
-        while time.time() - start_time < timeout_seconds:
-            poll_resp = client.get(f"{BASE_URL}/claims/{claim_id}", headers=cust_headers)
-            if poll_resp.status_code == 200:
-                body = poll_resp.json()
-                claim_obj = body.get("claim", {})
-                claim_status = claim_obj.get("status")
-                ai_analysis = body.get("ai_analysis")
-
-                log_response(
-                    f"Poll +{int(time.time() - start_time)}s",
-                    poll_resp,
-                    extra=f"Status: '{claim_status}' | AI Analysis Attached: {bool(ai_analysis)}",
-                )
-
-                if ai_analysis and ai_analysis.get("detected_damages") is not None:
-                    analysis_finished = True
-                    final_claim_data = body
-                    break
-
-            time.sleep(3)
-
-        if not analysis_finished:
-            print("[FAIL] AI analysis timed out after 120 seconds.")
-            sys.exit(1)
-
-        print("[SUCCESS] Customer flow completed. AI analysis attached.")
-
-        # Step 5: Agent Login & Adjudication Verification
-        agent_token = login_flow(client, AGENT_EMAIL, AGENT_PASSWORD, "Agent")
+        agent_token = login(client, AGENT_EMAIL or "", AGENT_PASSWORD or "", "Agent")
+        if not agent_token:
+            return 1
         agent_headers = {"Authorization": f"Bearer {agent_token}"}
+        queue = client.get(f"{BASE_URL}/agent/claims", headers=agent_headers)
+        results.append(request_ok("Agent fetch claims", queue, {200}))
+        detail = client.get(f"{BASE_URL}/agent/claims/{first_claim_id}", headers=agent_headers)
+        results.append(request_ok("Agent fetch claim detail", detail, {200}))
+        if detail.status_code == 200:
+            action = client.post(
+                f"{BASE_URL}/agent/claims/{first_claim_id}/action",
+                headers=agent_headers,
+                json={"action": "REQUEST_INFO", "requested_items": ["damage_photos"]},
+            )
+            results.append(request_ok("Agent decision", action, {200}))
+        else:
+            results.append(False)
 
-        print("\n--- Agent Fetching Adjudication Record ---")
-        agent_claim_resp = client.get(f"{BASE_URL}/agent/claims/{claim_id}", headers=agent_headers)
-        log_response("Agent Claim Detail", agent_claim_resp)
-
-        if agent_claim_resp.status_code != 200:
-            print(f"[FAIL] Agent could not fetch claim: HTTP {agent_claim_resp.status_code}")
-            sys.exit(1)
-
-        agent_data = agent_claim_resp.json()
-        claim_record = agent_data.get("claim", {})
-        ai_record = agent_data.get("ai_analysis", {})
-
-        # Assertions
-        print("\n--- Verifying Contract Assertions ---")
-        assert "claim" in agent_data, "Assertion failed: 'claim' missing from agent response"
-        assert "ai_analysis" in agent_data, "Assertion failed: 'ai_analysis' missing from agent response"
-        assert ai_record is not None, "Assertion failed: 'ai_analysis' is null"
-        assert "detected_damages" in ai_record, "Assertion failed: 'detected_damages' missing from ai_analysis"
-        assert "fraud_score" in claim_record or "fraud_score" in ai_record, "Assertion failed: 'fraud_score' missing"
-        assert "risk_level" in claim_record or "risk_level" in ai_record, "Assertion failed: 'risk_level' missing"
-
-        print("[ASSERTION PASS] 'claim' and 'ai_analysis' records confirmed.")
-        print("[ASSERTION PASS] 'detected_damages' present in AI analysis.")
-        print("[ASSERTION PASS] 'fraud_score' and 'risk_level' present.")
-        print("\n============================================================")
-        print("🎉 ALL SMOKE TEST ASSERTIONS PASSED SUCCESSFULLY!")
-        print("============================================================")
+    passed = sum(results)
+    print(f"SUMMARY: {passed}/{len(results)} checks passed")
+    return 0 if passed == len(results) else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
