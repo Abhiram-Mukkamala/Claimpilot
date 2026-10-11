@@ -23,6 +23,35 @@ except ImportError:  # pragma: no cover - optional provider dependency
 
 logger = logging.getLogger("claimpilot.fraud_analysis")
 SIX_MONTHS = timedelta(days=183)
+PHASH_COLUMN_MISSING_MESSAGE = (
+    "claim_evidence.phash is missing; apply migration_v3_phash.sql in the Supabase SQL editor."
+)
+
+
+class PhashColumnMissingError(RuntimeError):
+    """Raised when the manual pHash schema migration has not been applied."""
+
+    def __init__(self):
+        super().__init__(PHASH_COLUMN_MISSING_MESSAGE)
+
+
+def _is_missing_phash_column(error: Any) -> bool:
+    if isinstance(error, dict):
+        error_code = str(error.get("code") or "")
+        error_text = " ".join(
+            str(error.get(key) or "")
+            for key in ("message", "details", "hint", "error")
+        )
+    else:
+        error_code = ""
+        error_text = str(error)
+    normalized = error_text.lower()
+    return "phash" in normalized and (
+        error_code == "42703"
+        or "does not exist" in normalized
+        or "could not find" in normalized
+        or "schema cache" in normalized
+    )
 
 
 def compute_image_phash(image_bytes: bytes) -> str:
@@ -115,6 +144,8 @@ async def _select_all_rows(database: Any, table: str, params: dict[str, str]) ->
             params={**params, "limit": str(page_size), "offset": str(offset)},
         )
         if not isinstance(page, list):
+            if table == "claim_evidence" and _is_missing_phash_column(page):
+                raise PhashColumnMissingError()
             raise RuntimeError(f"Could not read all matching rows from {table}")
         rows.extend(row for row in page if isinstance(row, dict))
         if len(page) < page_size:
@@ -219,6 +250,8 @@ async def analyze_fraud(
                     data={"phash": current_hash},
                 )
             except Exception as exc:
+                if _is_missing_phash_column(exc):
+                    raise PhashColumnMissingError() from exc
                 logger.warning("Could not persist pHash for evidence row (%s)", type(exc).__name__)
 
     duplicate_indicator = FraudIndicator(

@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 
 from ultralytics import YOLO, RTDETR
 from app.db.supabase import db
-from app.services.fraud_analysis_service import analyze_fraud
+from app.services.fraud_analysis_service import PhashColumnMissingError, analyze_fraud
 
 logger = logging.getLogger("claimpilot.ai_runner")
 
@@ -100,6 +100,39 @@ async def _mark_analysis_failed(claim_id: str, message: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("Could not flag claim %s for manual review (%s)", claim_id, type(exc).__name__)
     return failure_payload
+
+
+async def _save_fraud_analysis(
+    claim_id: str,
+    *,
+    result: Dict[str, Any] | None = None,
+    error_message: str | None = None,
+) -> None:
+    payload = {
+        "claim_id": claim_id,
+        "analysis_status": "completed" if result is not None else "failed",
+        "error_message": error_message[:240] if error_message else None,
+        "score": result.get("score") if result else None,
+        "risk_level": result.get("riskLevel") if result else None,
+        "indicators": result.get("indicators", []) if result else [],
+        "analysis": result,
+    }
+    try:
+        existing = await db.select(
+            "claim_fraud_analyses",
+            params={"claim_id": f"eq.{claim_id}"},
+            single=True,
+        )
+        if existing:
+            await db.update(
+                "claim_fraud_analyses",
+                filters={"claim_id": f"eq.{claim_id}"},
+                data=payload,
+            )
+        else:
+            await db.insert("claim_fraud_analyses", payload)
+    except Exception as exc:
+        logger.error("Could not save fraud analysis for claim %s (%s)", claim_id, type(exc).__name__)
 
 
 async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[str, Any]:
@@ -307,14 +340,28 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
             evidence_images=fraud_images,
         )
         fraud_payload = fraud_result.model_dump(mode="json")
+        await _save_fraud_analysis(claim_id, result=fraud_payload)
         analysis_payload["fraud_analysis"] = fraud_payload
+        analysis_payload["fraud_analysis_error"] = None
         analysis_payload["fraud_flags"] = [
             indicator["message"]
             for indicator in fraud_payload["indicators"]
             if not indicator["passed"]
         ]
+    except PhashColumnMissingError as fraud_err:
+        logger.error("Fraud analysis unavailable for claim %s: %s", claim_id, fraud_err)
+        await _save_fraud_analysis(claim_id, error_message=str(fraud_err))
+        analysis_payload["fraud_analysis_error"] = str(fraud_err)
+        analysis_payload["fraud_flags"] = []
+        analysis_payload["fraud_analysis"] = None
     except Exception as fraud_err:
-        logger.error("[FRAUD ANALYSIS ERROR] Claim %s: %s", claim_id, type(fraud_err).__name__)
+        logger.error("Fraud analysis failed for claim %s (%s)", claim_id, type(fraud_err).__name__)
+        await _save_fraud_analysis(
+            claim_id,
+            error_message="Fraud analysis could not be completed.",
+        )
+        analysis_payload["fraud_analysis_error"] = "Fraud analysis could not be completed."
+        analysis_payload["fraud_flags"] = []
         analysis_payload["fraud_analysis"] = None
 
     await _save_analysis(analysis_payload)

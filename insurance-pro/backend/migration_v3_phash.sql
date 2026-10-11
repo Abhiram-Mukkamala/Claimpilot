@@ -12,3 +12,18 @@ ALTER TABLE public.claim_ai_analysis
 ALTER TABLE public.claim_ai_analysis
   ADD COLUMN IF NOT EXISTS analysis_status TEXT,
   ADD COLUMN IF NOT EXISTS error_message TEXT;
+
+ALTER TABLE public.claim_ai_analysis
+  ADD COLUMN IF NOT EXISTS fraud_analysis_error TEXT;
+
+CREATE TABLE IF NOT EXISTS public.claim_fraud_analyses (
+  claim_id UUID PRIMARY KEY REFERENCES public.claims (id) ON DELETE CASCADE,
+  analysis_status TEXT NOT NULL,
+  error_message TEXT,
+  score INTEGER,
+  risk_level TEXT,
+  indicators JSONB NOT NULL DEFAULT '[]'::jsonb,
+  analysis JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
