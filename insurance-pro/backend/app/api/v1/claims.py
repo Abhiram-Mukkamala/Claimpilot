@@ -1,7 +1,7 @@
 import random
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import Dict, Any, List
 
 from app.core.config import settings
@@ -14,7 +14,6 @@ from app.schemas.claim import (
     CustomerDecisionType,
     ClaimStatus
 )
-from app.services.ai_runner import trigger_ai_assessment
 
 router = APIRouter(prefix="/claims", tags=["Customer Claims Portal"])
 
@@ -33,7 +32,6 @@ def generate_claim_number() -> str:
 )
 async def create_claim(
     payload: ClaimCreate,
-    background_tasks: BackgroundTasks,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     print("=" * 60)
@@ -177,13 +175,11 @@ async def create_claim(
             detail={"success": False, "message": "Failed to create claim record in database", "error": str(e)}
         )
 
-    print(f"[CLAIM CREATE] Initiating AI Assessment task for claim_id: {claim_id}")
-    background_tasks.add_task(trigger_ai_assessment, claim_id=claim_id, background=True)
     print("=" * 60)
 
     return {
         "success": True,
-        "message": "Claim filed successfully. AI damage assessment initiated.",
+        "message": "Claim filed successfully. Upload damage photos to start the AI assessment.",
         "claim_id": claim_id,
         "claim_number": claim_number,
         "status": ClaimStatus.pending_review.value,

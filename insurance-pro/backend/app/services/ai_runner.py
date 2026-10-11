@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import ssl
@@ -42,23 +41,30 @@ def get_models():
 async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[str, Any]:
     logger.info(f"[AI PIPELINE TRIGGERED] Starting vision adjudication for Claim: {claim_id}")
 
-    # 1. Poll database for evidence uploaded by frontend
-    evidence_list = []
-    photo_evidence = []
-    photo_urls = []
-    
-    for attempt in range(5):
-        evidence_list = await db.select("claim_evidence", params={"claim_id": f"eq.{claim_id}"}) or []
-        photo_evidence = [
-            evidence for evidence in evidence_list
-            if evidence.get("category") in ["photo", "damage_photo"] and evidence.get("file_url")
-        ]
-        photo_urls = [
-            evidence["file_url"] for evidence in photo_evidence
-        ]
-        if photo_urls:
-            break
-        await asyncio.sleep(1)
+    # Evidence registration is the trigger. Do not start analysis for a new
+    # claim until at least one damage photo has been cataloged.
+    evidence_list = await db.select(
+        "claim_evidence", params={"claim_id": f"eq.{claim_id}"}
+    ) or []
+    photo_evidence = [
+        evidence for evidence in evidence_list
+        if evidence.get("category") in ["photo", "damage_photo"] and evidence.get("file_url")
+    ]
+    photo_urls = [evidence["file_url"] for evidence in photo_evidence]
+    if not photo_urls:
+        logger.info("Skipping AI analysis for claim %s: no damage photo evidence", claim_id)
+        return {"claim_id": claim_id, "status": "skipped", "reason": "no_photo_evidence"}
+
+    # This conditional update is the database-backed idempotency guard. Only
+    # one upload-triggered task can move a new claim out of pending_review.
+    claimed = await db.update(
+        "claims",
+        filters={"id": f"eq.{claim_id}", "status": "eq.pending_review"},
+        data={"status": "under_review"},
+    )
+    if not claimed:
+        logger.info("Skipping duplicate AI analysis trigger for claim %s", claim_id)
+        return {"claim_id": claim_id, "status": "skipped", "reason": "already_started"}
 
     detected_damages: List[Dict[str, Any]] = []
     fraud_images = []
