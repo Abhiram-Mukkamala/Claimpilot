@@ -8,3 +8,7 @@ CREATE INDEX IF NOT EXISTS idx_claim_evidence_phash
 
 ALTER TABLE public.claim_ai_analysis
   ADD COLUMN IF NOT EXISTS fraud_analysis JSONB;
+
+ALTER TABLE public.claim_ai_analysis
+  ADD COLUMN IF NOT EXISTS analysis_status TEXT,
+  ADD COLUMN IF NOT EXISTS error_message TEXT;
