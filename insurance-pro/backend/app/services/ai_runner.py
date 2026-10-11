@@ -166,11 +166,11 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     detected_damages: List[Dict[str, Any]] = []
     fraud_images = []
     yolo_model, rtdetr_model = get_models()
-    if not yolo_model and not rtdetr_model:
-        return await _mark_analysis_failed(
-            claim_id,
-            "No damage detection model weights are available.",
-        )
+    inference_failure_message = (
+        "No damage detection model weights are available."
+        if not yolo_model and not rtdetr_model
+        else "Damage detection failed for all uploaded photos."
+    )
 
     downloaded_count = 0
     successful_inferences = 0
@@ -290,12 +290,6 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
             claim_id,
             "Unable to download uploaded damage photos.",
         )
-    if successful_inferences == 0:
-        return await _mark_analysis_failed(
-            claim_id,
-            "Damage detection failed for all uploaded photos.",
-        )
-
     total_est = sum(item["estimated_cost"] for item in detected_damages)
     estimated_min = round(total_est * 0.85, 2) if detected_damages else 0.0
     estimated_max = round(total_est * 1.15, 2) if detected_damages else 0.0
@@ -363,6 +357,12 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         analysis_payload["fraud_analysis_error"] = "Fraud analysis could not be completed."
         analysis_payload["fraud_flags"] = []
         analysis_payload["fraud_analysis"] = None
+
+    if successful_inferences == 0:
+        return await _mark_analysis_failed(
+            claim_id,
+            inference_failure_message,
+        )
 
     await _save_analysis(analysis_payload)
     claim_update = {"status": "under_review"}
