@@ -15,6 +15,7 @@ export const AgentClaims = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -28,6 +29,11 @@ export const AgentClaims = () => {
     }).catch(err => {
       console.error('Error fetching claims:', err);
       if (isMounted) {
+        if (err?.status === 401 || err?.statusCode === 401) {
+          navigate('/login', { replace: true });
+          return;
+        }
+        setErrorMessage('Unable to load claims. Check your connection and try again.');
         setClaims([]);
         setLoading(false);
       }
@@ -45,6 +51,11 @@ export const AgentClaims = () => {
         .then(data => setSelectedClaimDetail(data))
         .catch(err => {
           console.error('Error fetching claim detail:', err);
+          if (err?.status === 401 || err?.statusCode === 401) {
+            navigate('/login', { replace: true });
+            return;
+          }
+          setErrorMessage('Unable to load claim details. Please try again.');
           setSelectedClaimDetail(null);
         });
     } else {
@@ -138,6 +149,11 @@ export const AgentClaims = () => {
           {claims.length} total claims in queue
         </p>
       </div>
+      {errorMessage && (
+        <div role="alert" style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
+          {errorMessage}
+        </div>
+      )}
 
       {/* ── Toolbar ── */}
       <div className="ac-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -198,7 +214,13 @@ export const AgentClaims = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>Loading claims...</td></tr>
+              Array.from({ length: 5 }, (_, index) => (
+                <tr key={`skeleton-${index}`} aria-label="Loading claim">
+                  {Array.from({ length: 7 }, (_, cellIndex) => (
+                    <td key={cellIndex}><div style={{ height: '0.9rem', width: cellIndex === 0 ? '80px' : '65%', backgroundColor: 'var(--bg-hover)', borderRadius: '4px' }} /></td>
+                  ))}
+                </tr>
+              ))
             ) : filteredClaims.length === 0 ? (
               <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>No claims found for this filter.</td></tr>
             ) : (

@@ -22,6 +22,9 @@ export const AgentClaimDetails = () => {
   const [damageAnalysis, setDamageAnalysis] = useState<DamageAnalysis | null>(null);
   const [fraudAnalysis, setFraudAnalysis] = useState<FraudAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
+  const [damageStatus, setDamageStatus] = useState<'loading' | 'available' | 'failed' | 'unavailable'>('loading');
+  const [fraudStatus, setFraudStatus] = useState<'loading' | 'available' | 'failed' | 'unavailable'>('loading');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mainImage, setMainImage] = useState<string | undefined>();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'damage' | '3d-analysis' | 'fraud'>('overview');
@@ -117,12 +120,19 @@ export const AgentClaimDetails = () => {
         const fraudData = fraudRes.status === 'fulfilled' ? fraudRes.value : null;
         const advData = advRes.status === 'fulfilled' ? advRes.value : null;
 
+        if (claimRes.status === 'rejected' && (claimRes.reason?.status === 401 || claimRes.reason?.statusCode === 401)) {
+          navigate('/login', { replace: true });
+          return;
+        }
+        if (claimRes.status === 'rejected') setErrorMessage('Unable to load this claim. Please try again.');
         setClaim(claimData || null);
         if (claimData?.images && claimData.images.length > 0) {
           setMainImage(claimData.images[0]);
         }
         setDamageAnalysis(damageData);
         setFraudAnalysis(fraudData);
+        setDamageStatus(damageRes.status === 'fulfilled' ? (damageData ? 'available' : 'unavailable') : 'failed');
+        setFraudStatus(fraudRes.status === 'fulfilled' ? (fraudData ? 'available' : 'unavailable') : 'failed');
         setAdvancedData(advData);
 
         setLoading(false);
@@ -140,6 +150,7 @@ export const AgentClaimDetails = () => {
     if (!claim) return;
     try {
       setLoading(true);
+      setErrorMessage(null);
       await claimsApi.updateClaimStatus(claim.id, status, {
         ...additionalData,
         reviewedByAgent: true,
@@ -148,6 +159,11 @@ export const AgentClaimDetails = () => {
       navigate('/agent/claims');
     } catch (err) {
       console.error('Error updating claim status:', err);
+      if ((err as { status?: number }).status === 401 || (err as { statusCode?: number }).statusCode === 401) {
+        navigate('/login', { replace: true });
+      } else {
+        setErrorMessage('We could not save this decision. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -161,12 +177,22 @@ export const AgentClaimDetails = () => {
   );
 
   const imagesList = claim?.images && claim.images.length > 0 ? claim.images : (mainImage ? [mainImage] : []);
+  const safeFraudScore = fraudAnalysis && Number.isFinite(fraudAnalysis.score) ? Math.min(100, Math.max(0, fraudAnalysis.score)) : 0;
+  const analysisMessage = (status: typeof damageStatus | typeof fraudStatus) =>
+    status === 'loading' ? 'Analyzing... This may take a few moments.' :
+      status === 'failed' ? 'Analysis failed, sent for manual review.' :
+        status === 'unavailable' ? 'Not yet available.' : '';
 
   if (loading) return <div className="text-muted p-xl text-center">Loading workspace...</div>;
   if (!claim) return <div className="text-muted p-xl text-center">Claim not found.</div>;
 
   return (
     <div className="flex flex-col gap-lg" style={{ paddingBottom: '4rem' }}>
+      {errorMessage && (
+        <div role="alert" style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
+          {errorMessage}
+        </div>
+      )}
       {/* Header Panel */}
       <div className="flex justify-between items-start page-header" style={{ marginBottom: 0, paddingBottom: '1.5rem' }}>
         <div className="flex items-start gap-md">
@@ -367,7 +393,7 @@ export const AgentClaimDetails = () => {
 
                   <Card style={{ flex: 1, minWidth: '250px' }}>
                     <h3 className="text-sm text-muted uppercase font-bold flex items-center gap-sm mb-4"><ShieldCheck size={14} /> AI Summary</h3>
-                    {damageAnalysis ? (
+                    {damageAnalysis && damageStatus === 'available' ? (
                       <div className="flex flex-col gap-sm text-sm">
                         <div>
                           <span className="text-muted block text-xs">Damage Areas</span>
@@ -390,7 +416,7 @@ export const AgentClaimDetails = () => {
                       <div className="flex flex-col gap-md h-full justify-center">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent)', animation: 'pulse 2s infinite' }} />
-                          <span className="font-bold" style={{ color: 'var(--text-secondary)' }}>AI is analyzing evidence...</span>
+                          <span className="font-bold" style={{ color: 'var(--text-secondary)' }}>{analysisMessage(damageStatus)}</span>
                         </div>
                         <div style={{ height: '24px', width: '100%', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', border: '1px solid var(--border)' }} />
                         <div style={{ height: '24px', width: '70%', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', border: '1px solid var(--border)' }} />
@@ -405,7 +431,7 @@ export const AgentClaimDetails = () => {
               <div className="flex gap-lg">
                 <div style={{ flex: 2 }}>
                   <Card style={{ padding: '0.5rem' }}>
-                    {damageAnalysis ? (
+                    {damageAnalysis && damageStatus === 'available' ? (
                       <DamageViewer
                         analysis={{ ...damageAnalysis, imageUrl: mainImage || damageAnalysis.imageUrl || '' }}
                         selectedDamageId={selectedDamage?.id}
@@ -416,8 +442,8 @@ export const AgentClaimDetails = () => {
                         <img src={mainImage || ''} alt="Evidence" style={{ width: '100%', opacity: 0.5, filter: 'grayscale(50%) blur(2px)' }} />
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
                           <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: 'var(--accent)', animation: 'pulse 2s infinite', marginBottom: '0.75rem' }} />
-                          <p style={{ fontWeight: 600, color: 'var(--text-primary)', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>AI Evidence Extraction Running</p>
-                          <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>Detecting damage boundaries...</p>
+                          <p style={{ fontWeight: 600, color: 'var(--text-primary)', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>{analysisMessage(damageStatus)}</p>
+                          <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>{damageStatus === 'loading' ? 'Detecting damage boundaries...' : 'An agent can review the evidence manually.'}</p>
                         </div>
                       </div>
                     )}
@@ -446,7 +472,7 @@ export const AgentClaimDetails = () => {
                 <div style={{ flex: 1 }} className="flex flex-col gap-md">
                   <Card>
                     <h3 className="text-sm text-muted uppercase font-bold mb-4">Estimated Repair Cost</h3>
-                    {damageAnalysis ? (
+                    {damageAnalysis && damageStatus === 'available' ? (
                       <div>
                         <div className="text-2xl font-bold mb-1">
                           ₹{damageAnalysis.totalEstimatedCost?.min?.toLocaleString() ?? 0} – ₹{damageAnalysis.totalEstimatedCost?.max?.toLocaleString() ?? 0}
@@ -474,7 +500,7 @@ export const AgentClaimDetails = () => {
 
                   <Card style={{ flex: 1, overflowY: 'auto', maxHeight: '400px' }}>
                     <h3 className="text-sm text-muted uppercase font-bold mb-4">Detected Damage</h3>
-                    {damageAnalysis ? (
+                    {damageAnalysis && damageStatus === 'available' ? (
                       <div className="flex flex-col gap-sm">
                         {(damageAnalysis.damages || []).map((dmg, idx) => (
                           <div
@@ -552,17 +578,17 @@ export const AgentClaimDetails = () => {
                 <div style={{ flex: 2 }} className="flex flex-col gap-md">
                   <Card>
                     <h3 className="text-sm text-muted uppercase font-bold mb-6">AI Fraud Assessment</h3>
-                    {fraudAnalysis ? (
+                    {fraudAnalysis && fraudStatus === 'available' ? (
                       <div>
                         {/* Fraud Risk Bar */}
                         <div className="flex flex-col mb-8">
                           <div className="flex justify-between items-end mb-3">
                             <span className="text-3xl font-bold">
-                              <span ref={fraudScoreRef}>{fraudAnalysis.score}</span>
+                              <span ref={fraudScoreRef}>{safeFraudScore}</span>
                               <span className="text-lg text-muted font-normal"> / 100</span>
                             </span>
                             <span className="font-bold" style={{ color: fraudAnalysis.riskLevel === 'HIGH RISK' ? 'var(--danger)' : fraudAnalysis.riskLevel === 'MEDIUM RISK' ? 'var(--warning)' : 'var(--success)' }}>
-                              {fraudAnalysis.riskLevel}
+                              {fraudAnalysis.riskLevel === 'HIGH RISK' || fraudAnalysis.riskLevel === 'MEDIUM RISK' || fraudAnalysis.riskLevel === 'LOW RISK' ? fraudAnalysis.riskLevel : 'LOW RISK'}
                             </span>
                           </div>
 
@@ -579,12 +605,12 @@ export const AgentClaimDetails = () => {
                                 left: 0,
                                 top: 0,
                                 bottom: 0,
-                                width: `${Math.min(100, Math.max(0, fraudAnalysis.score))}%`,
+                                width: `${safeFraudScore}%`,
                                 borderRadius: '5px',
                                 backgroundColor:
-                                  fraudAnalysis.score > 66
+                                  safeFraudScore > 66
                                     ? 'var(--danger)'
-                                    : fraudAnalysis.score > 33
+                                    : safeFraudScore > 33
                                       ? 'var(--warning)'
                                       : 'var(--success)',
                               }}
@@ -601,17 +627,20 @@ export const AgentClaimDetails = () => {
                         <h4 className="text-sm font-bold mb-4">Risk Indicators</h4>
                         <div className="flex flex-col gap-sm">
                           {(fraudAnalysis.indicators || []).map((indicator, idx) => (
-                            <div key={idx} className="fraud-indicator-item flex items-start gap-md p-3" style={{ backgroundColor: 'var(--bg-primary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                            <div key={idx} className="fraud-indicator-item flex items-start gap-md p-3" style={{ backgroundColor: 'var(--bg-primary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', minWidth: 0 }}>
                               {indicator.passed ? (
                                 <CheckCircle size={18} color="var(--success)" />
                               ) : (
                                 <AlertTriangle size={18} color="var(--danger)" />
                               )}
-                              <div>
+                              <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                                 <p className="font-bold text-sm" style={{ color: indicator.passed ? 'var(--success)' : 'var(--danger)' }}>
                                   {indicator.passed ? 'Verified' : 'Suspicious Flag'}
                                 </p>
-                                <p className="text-xs text-muted mt-1">{indicator.message}</p>
+                                <p className="text-xs text-muted mt-1">{indicator.message || 'No details provided.'}</p>
+                                {(indicator.message || '').toLowerCase().includes('skip') && (
+                                  <p className="text-xs text-muted mt-1">This check was skipped and should be reviewed manually.</p>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -621,7 +650,7 @@ export const AgentClaimDetails = () => {
                       <div className="flex flex-col gap-md">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent)', animation: 'pulse 2s infinite' }} />
-                          <span className="font-bold" style={{ color: 'var(--text-secondary)' }}>AI Fraud Engine is computing risk factors...</span>
+                          <span className="font-bold" style={{ color: 'var(--text-secondary)' }}>{analysisMessage(fraudStatus)}</span>
                         </div>
                         <div style={{ height: '32px', width: '40%', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', border: '1px solid var(--border)' }} />
                         <div style={{ height: '8px', width: '100%', backgroundColor: 'var(--bg-hover)', borderRadius: '4px', border: '1px solid var(--border)' }} />

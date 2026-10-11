@@ -62,6 +62,7 @@ export const NewClaim = () => {
 
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'analyzing' | 'failed'>('idle');
   const [isCompressing, setIsCompressing] = useState(false);
   const prevStepRef = useRef<Step>(1);
   const stepContainerRef = useRef<HTMLDivElement>(null);
@@ -126,7 +127,24 @@ export const NewClaim = () => {
     return true;
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const downscaleImage = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/') || file.type === 'image/heic' || file.type === 'image/heif') return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1) {
+      bitmap.close();
+      return file;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg', lastModified: file.lastModified }) : file;
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -179,10 +197,11 @@ export const NewClaim = () => {
       setUploadNotice(null);
     }
 
-    const newImages: LocalImage[] = filesToUpload.map(file => ({
-      file,
-      previewUrl: URL.createObjectURL(file)
-    }));
+    const newImages: LocalImage[] = [];
+    for (const file of filesToUpload) {
+      const previewFile = await downscaleImage(file);
+      newImages.push({ file: previewFile, previewUrl: URL.createObjectURL(previewFile) });
+    }
 
     setImages(prev => [...prev, ...newImages]);
     e.target.value = '';
@@ -299,7 +318,7 @@ export const NewClaim = () => {
     setUploadNotice(null);
   };
 
-  const handleDLPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
+  const handleDLPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -312,12 +331,13 @@ export const NewClaim = () => {
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
+    const processedFile = await downscaleImage(file);
+    const previewUrl = URL.createObjectURL(processedFile);
     if (side === 'front') {
-      setDriverLicenseFrontFile(file);
+      setDriverLicenseFrontFile(processedFile);
       setDriverLicenseFrontPhoto(previewUrl);
     } else {
-      setDriverLicenseBackFile(file);
+      setDriverLicenseBackFile(processedFile);
       setDriverLicenseBackPhoto(previewUrl);
     }
     setUploadNotice(null);
@@ -326,6 +346,7 @@ export const NewClaim = () => {
 
   const handleSubmit = async () => {
     setLoading(true);
+    setSubmissionStatus('idle');
     try {
       const uploadedImageUrls: string[] = [];
       const uploadedVideoUrls: string[] = [];
@@ -403,6 +424,7 @@ export const NewClaim = () => {
       }
 
       setLoading(false);
+      setSubmissionStatus('analyzing');
       setUploadNotice({ type: 'success', message: 'Claim created successfully!' });
 
       // Reset form
@@ -428,6 +450,11 @@ export const NewClaim = () => {
     } catch (err: any) {
       console.error('[SUBMIT CLAIM ERROR]', err);
       setLoading(false);
+      setSubmissionStatus('failed');
+      if (err?.status === 401 || err?.statusCode === 401) {
+        navigate('/login', { replace: true });
+        return;
+      }
       setUploadNotice({
         type: 'error',
         message: err.message || 'An error occurred while submitting your claim.'
@@ -994,6 +1021,17 @@ export const NewClaim = () => {
                   <h2 className="text-xl mb-1">Review Details</h2>
                   <p className="text-muted text-sm">Please verify the information before submitting.</p>
                 </div>
+
+                {submissionStatus === 'analyzing' && (
+                  <div role="status" style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--accent-primary)', color: 'var(--accent-primary)', backgroundColor: 'var(--accent-dim)' }}>
+                    Analyzing claim evidence... Your claim has been submitted and analysis is running in the background.
+                  </div>
+                )}
+                {submissionStatus === 'failed' && (
+                  <div role="alert" style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
+                    Analysis failed, sent for manual review.
+                  </div>
+                )}
 
                 {uploadNotice && (
                   <div ref={noticeRef} style={{
