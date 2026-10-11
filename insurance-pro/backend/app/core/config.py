@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional, Union
-from pydantic import Field
+from pydantic import Field, ValidationError
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     USE_PYDANTIC_V2 = True
@@ -13,16 +13,22 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "ClaimPilot AI Platform API"
     API_V1_STR: str = "/api/v1"
     
-    # Supabase Credentials
-    SUPABASE_URL: str = Field(default="https://zegygoxpmnxpdhutdpqf.supabase.co")
-    SUPABASE_ANON_KEY: str = Field(default="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplZ3lnb3hwbW54cGRodXRkcHFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1Njk5ODYsImV4cCI6MjEwNTE0NTk4Nn0.f5cV4peE89XlqWpO2oPUn5eqcLQWdPyu9OzY9lm-8eQ")
-    SUPABASE_SERVICE_ROLE_KEY: str = Field(default="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplZ3lnb3hwbW54cGRodXRkcHFmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTU2OTk4NiwiZXhwIjoyMTA1MTQ1OTg2fQ.WkW2XX2PzvKyaWycaXxtbvz-BGA_Id7WEnQJMTXqO3E")
+    # Supabase Credentials (Required - must be set via environment or .env)
+    SUPABASE_URL: str
+    SUPABASE_ANON_KEY: str
+    SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_STORAGE_BUCKET: str = Field(default="claim-evidence")
 
-    # JWT Settings
-    JWT_SECRET: str = Field(default="claimpilot-secure-production-jwt-secret-key-2026-v1")
+    # JWT Settings (Required - must be set via environment or .env)
+    JWT_SECRET: str
     JWT_ALGORITHM: str = Field(default="HS256")
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+
+    # Fraud analysis settings (Optional for local/offline use)
+    PHASH_DISTANCE_THRESHOLD: int = Field(default=5, ge=0)
+    FRAUD_LLM_PROVIDER: Optional[str] = Field(default="openai")
+    FRAUD_LLM_API_KEY: Optional[str] = Field(default=None)
+    FRAUD_LLM_MODEL: Optional[str] = Field(default="gpt-4o-mini")
 
     # Frontend URL (for email magic links and CORS)
     FRONTEND_URL: str = "http://localhost:5173"
@@ -30,13 +36,13 @@ class Settings(BaseSettings):
 
     # SendGrid Settings
     SENDGRID_API_KEY: Optional[str] = Field(default=None)
-    SENDGRID_FROM_EMAIL: Optional[str] = Field(default="rahul.sutar25@vupune.ac.in")
+    SENDGRID_FROM_EMAIL: Optional[str] = Field(default=None)
 
     # Email Settings (SMTP)
     SMTP_HOST: str = "smtp.claimpilot.internal"
     SMTP_PORT: int = 587
     SMTP_USER: str = "notifications@claimpilot.com"
-    SMTP_PASSWORD: str = "mock-smtp-password"
+    SMTP_PASSWORD: Optional[str] = Field(default=None)
     SMTP_FROM_EMAIL: str = "notifications@claimpilot.com"
     SMTP_FROM_NAME: str = "ClaimPilot Claims Engine"
     SUPPORT_EMAIL: str = "support@claimpilot.com"
@@ -69,4 +75,9 @@ class Settings(BaseSettings):
             extra = "ignore"
 
 
-settings = Settings()
+try:
+    settings = Settings()
+except ValidationError as exc:
+    invalid_names = sorted({str(error["loc"][0]) for error in exc.errors()})
+    names = ", ".join(invalid_names)
+    raise RuntimeError(f"Invalid or missing configuration variable(s): {names}") from None
