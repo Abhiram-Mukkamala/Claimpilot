@@ -85,12 +85,15 @@ if (Test-Path $backendEnvPath) {
             $backendMissingKeys += $key
         }
     }
-}
-
-if ($backendMissingKeys.Count -eq 0) {
-    Write-Host "PASS"
+    
+    if ($backendMissingKeys.Count -eq 0) {
+        Write-Host "PASS"
+    } else {
+        Write-Host "FAIL: Missing variable names: $($backendMissingKeys -join ', ')"
+        $allPassed = $false
+    }
 } else {
-    Write-Host "FAIL: Missing variable names: $($backendMissingKeys -join ', ')"
+    Write-Host "FAIL: $backendEnvPath does not exist"
     $allPassed = $false
 }
 
@@ -106,12 +109,15 @@ if (Test-Path $frontendEnvPath) {
             $frontendMissingKeys += $key
         }
     }
-}
-
-if ($frontendMissingKeys.Count -eq 0) {
-    Write-Host "PASS"
+    
+    if ($frontendMissingKeys.Count -eq 0) {
+        Write-Host "PASS"
+    } else {
+        Write-Host "FAIL: Missing variable names: $($frontendMissingKeys -join ', ')"
+        $allPassed = $false
+    }
 } else {
-    Write-Host "FAIL: Missing variable names: $($frontendMissingKeys -join ', ')"
+    Write-Host "FAIL: $frontendEnvPath does not exist"
     $allPassed = $false
 }
 
