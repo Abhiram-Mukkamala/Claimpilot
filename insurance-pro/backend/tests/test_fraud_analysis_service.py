@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import io
 import os
 import sys
@@ -15,11 +16,9 @@ os.environ["SUPABASE_ANON_KEY"] = "dummy-anon-key"
 os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "dummy-service-role-key"
 os.environ["JWT_SECRET"] = "dummy-jwt-signing-secret"
 
-# The fraud service tests do not exercise JWT code. Keep test collection offline
-# when the development environment has not installed this listed backend dependency.
-try:
-    import jose  # noqa: F401
-except ImportError:
+# app.core eagerly imports security.py, so provide an inert placeholder only
+# when python-jose is genuinely absent. Never replace an existing/real module.
+if "jose" not in sys.modules and importlib.util.find_spec("jose") is None:
     jose_stub = ModuleType("jose")
 
     class JWTError(Exception):
@@ -27,7 +26,7 @@ except ImportError:
 
     jose_stub.jwt = object()
     jose_stub.JWTError = JWTError
-    sys.modules["jose"] = jose_stub
+    sys.modules.setdefault("jose", jose_stub)
 
 # Avoid services/__init__.py eager-loading email and model-runtime dependencies.
 services_package = ModuleType("app.services")

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import importlib.util
 import json
 import os
 import secrets
@@ -18,6 +19,14 @@ for _name in (
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
+
+try:
+    _jose_spec = importlib.util.find_spec("jose")
+except (ImportError, ValueError):
+    _jose_spec = None
+if _jose_spec is None:
+    pytest.skip("python-jose is not installed", allow_module_level=True)
+
 from jose import jwt
 
 from app.core.config import settings
