@@ -10,6 +10,7 @@ from typing import Dict, Any, List
 
 from ultralytics import YOLO, RTDETR
 from app.db.supabase import db
+from app.services.fraud_analysis_service import analyze_fraud
 
 logger = logging.getLogger("claimpilot.ai_runner")
 
@@ -43,25 +44,31 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
 
     # 1. Poll database for evidence uploaded by frontend
     evidence_list = []
+    photo_evidence = []
     photo_urls = []
     
     for attempt in range(5):
         evidence_list = await db.select("claim_evidence", params={"claim_id": f"eq.{claim_id}"}) or []
+        photo_evidence = [
+            evidence for evidence in evidence_list
+            if evidence.get("category") in ["photo", "damage_photo"] and evidence.get("file_url")
+        ]
         photo_urls = [
-            e["file_url"] for e in evidence_list 
-            if e.get("category") in ["photo", "damage_photo"] and e.get("file_url")
+            evidence["file_url"] for evidence in photo_evidence
         ]
         if photo_urls:
             break
         await asyncio.sleep(1)
 
     detected_damages: List[Dict[str, Any]] = []
+    fraud_images = []
     yolo_model, rtdetr_model = get_models()
 
     # 2. Perform Inference
-    if photo_urls and (yolo_model or rtdetr_model):
+    if photo_urls:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            for idx, raw_url in enumerate(photo_urls[:10]):
+            for idx, evidence in enumerate(photo_evidence[:10]):
+                raw_url = evidence["file_url"]
                 try:
                     local_photo_path = os.path.join(tmp_dir, f"evidence_{idx}.jpg")
                     
@@ -83,8 +90,14 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
                     )
 
                     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
-                    with opener.open(req) as response, open(local_photo_path, 'wb') as out_file:
-                        out_file.write(response.read())
+                    with opener.open(req) as response:
+                        image_bytes = response.read()
+                    with open(local_photo_path, 'wb') as out_file:
+                        out_file.write(image_bytes)
+                    fraud_images.append({
+                        "evidence_id": evidence.get("id"),
+                        "image_bytes": image_bytes,
+                    })
 
                     # YOLOv11 Inference
                     if yolo_model:
@@ -174,9 +187,6 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     total_est = sum(item["estimated_cost"] for item in detected_damages)
     estimated_min = round(max(total_est * 0.85, 3000.00), 2)
     estimated_max = round(max(total_est * 1.15, 5000.00), 2)
-    fraud_score = 12 if len(detected_damages) < 5 else 45
-    risk_level = "High Risk" if fraud_score > 40 else "Low Risk"
-
     primary_image_url = photo_urls[0] if photo_urls else (
         evidence_list[0]["file_url"] if evidence_list and evidence_list[0].get("file_url") else ""
     )
@@ -205,6 +215,35 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         "fraud_flags": []
     }
 
+    fraud_payload = None
+    try:
+        claim = await db.select(
+            "claims",
+            params={
+                "select": "id,user_id,description,created_at",
+                "id": f"eq.{claim_id}",
+            },
+            single=True,
+        )
+        fraud_result = await analyze_fraud(
+            claim_id=claim_id,
+            claimant_id=(claim or {}).get("user_id"),
+            description=(claim or {}).get("description") or "",
+            submitted_at=(claim or {}).get("created_at"),
+            damages=detected_damages,
+            evidence_images=fraud_images,
+        )
+        fraud_payload = fraud_result.model_dump(mode="json")
+        analysis_payload["fraud_analysis"] = fraud_payload
+        analysis_payload["fraud_flags"] = [
+            indicator["message"]
+            for indicator in fraud_payload["indicators"]
+            if not indicator["passed"]
+        ]
+    except Exception as fraud_err:
+        logger.error("[FRAUD ANALYSIS ERROR] Claim %s: %s", claim_id, type(fraud_err).__name__)
+        analysis_payload["fraud_analysis"] = None
+
     try:
         # Upsert: Update if row exists, Insert if row doesn't exist
         existing = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{claim_id}"})
@@ -217,15 +256,13 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         else:
             await db.insert("claim_ai_analysis", analysis_payload)
 
-        await db.update(
-            "claims",
-            filters={"id": f"eq.{claim_id}"},
-            data={
-                "fraud_score": fraud_score,
-                "risk_level": risk_level,
-                "status": "under_review"
-            }
-        )
+        claim_update = {"status": "under_review"}
+        if fraud_payload is not None:
+            claim_update.update({
+                "fraud_score": fraud_payload["score"],
+                "risk_level": fraud_payload["riskLevel"],
+            })
+        await db.update("claims", filters={"id": f"eq.{claim_id}"}, data=claim_update)
         logger.info(f"[AI PIPELINE COMPLETED] Claim: {claim_id} assessed successfully.")
         return analysis_payload
     except Exception as e:
