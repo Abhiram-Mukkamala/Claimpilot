@@ -21,11 +21,6 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
     password = payload.get("password") or ""
 
     # ==================== LOGIN DEBUGGER ====================
-    print("\n\033[1;33m" + "=" * 60)
-    print("🔑 [LOGIN DEBUGGER - STEP 1: PASSWORD CHECK]")
-    print(f"  • Email    : '{email}'")
-    print(f"  • Password : '{password}' (Length: {len(password)})")
-    print("=" * 60 + "\033[0m\n")
     # =======================================================
 
     if not email or not password:
@@ -43,12 +38,11 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
         supabase_user = auth_res.user
         if not supabase_user:
             raise Exception("Invalid credentials")
+        logger.info("event=auth.login outcome=credentials_verified user_id=%s", supabase_user.id)
         
-        print("\033[1;32m[LOGIN SUCCESS] Password verified in Supabase Auth. Triggering OTP...\033[0m\n")
     except Exception as auth_err:
         error_msg = str(auth_err)
-        print(f"\033[1;31m[LOGIN ERROR] Invalid credentials: {error_msg}\033[0m\n")
-        logger.warning(f"[LOGIN FAILED] email={email}: {error_msg}")
+        logger.warning("event=auth.login outcome=failure")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"message": "Invalid email or password", "error": error_msg}
@@ -73,14 +67,6 @@ async def register_user(payload: UserRegisterRequest):
     email = payload.email.lower().strip()
 
     # ==================== REGISTER DEBUGGER ====================
-    print("\n\033[1;32m" + "=" * 60)
-    print("📝 [DIRECT /AUTH/REGISTER DEBUGGER]")
-    print(f"  • Full Name        : '{payload.full_name}'")
-    print(f"  • Parsed Email     : '{email}'")
-    print(f"  • Phone Number     : '{payload.phone_number}'")
-    print(f"  • DOB              : '{payload.dob}'")
-    print(f"  • Received Password: '{payload.password}' (Length: {len(payload.password) if payload.password else 0})")
-    print("=" * 60 + "\033[0m\n")
     # ===========================================================
 
     # 1. Check if profile already exists in public.profiles
@@ -103,10 +89,10 @@ async def register_user(payload: UserRegisterRequest):
             }
         })
         user_id = auth_res.user.id
-        print(f"\033[1;32m[AUTH SUCCESS] Created auth.users record: {user_id}\033[0m")
+        logger.info("event=auth.register outcome=auth_user_created user_id=%s", user_id)
     except Exception as auth_err:
         error_msg = str(auth_err)
-        logger.error(f"[SUPABASE AUTH CREATION FAILED]: {error_msg}")
+        logger.error("event=auth.register outcome=auth_user_creation_failed")
         
         if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
             raise HTTPException(
@@ -136,11 +122,11 @@ async def register_user(payload: UserRegisterRequest):
     try:
         supabase_admin.table("profiles").insert(profile_data).execute()
     except Exception as db_err:
-        logger.error(f"[PROFILES DB INSERT FAILED]: {str(db_err)}")
+        logger.error("event=auth.register outcome=profile_insert_failed user_id=%s", user_id)
         try:
             supabase_admin.auth.admin.delete_user(user_id)
         except Exception as delete_err:
-            logger.error(f"[AUTH CLEANUP FAILED]: {str(delete_err)}")
+            logger.error("event=auth.register_cleanup outcome=failure user_id=%s", user_id)
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

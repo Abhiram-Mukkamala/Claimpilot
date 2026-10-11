@@ -1,6 +1,7 @@
 # app/api/v1/auth_otp.py
 import random
 import logging
+import os
 import httpx
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
@@ -20,6 +21,14 @@ from app.services.email import _dispatch_email
 
 router = APIRouter(prefix="/auth/otp", tags=["Dual OTP Authentication (Email & SMS)"])
 logger = logging.getLogger("claimpilot.otp")
+
+_environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+_dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
+if _dev_fixed_code is not None:
+    if _environment != "development":
+        raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development")
+    if len(_dev_fixed_code) != 6 or not _dev_fixed_code.isdigit():
+        raise RuntimeError("OTP_DEV_FIXED_CODE must be exactly six digits")
 
 
 async def send_otp_via_email(email: str, otp_code: str):
@@ -53,7 +62,7 @@ async def send_otp_via_email(email: str, otp_code: str):
     await _dispatch_email(email, subject, html_content, plain_text)
 
 
-async def send_otp_via_sms(phone_number: str, otp_code: str):
+async def send_otp_via_sms(phone_number: str, otp_code: str, user_id: str | None = None):
     """Deliver SMS OTP via Twilio REST API or Fast2SMS with local fallback."""
     sms_body = f"ClaimPilot: Your verification code is {otp_code}. Valid for 10 minutes. Do not share this OTP."
 
@@ -69,11 +78,11 @@ async def send_otp_via_sms(phone_number: str, otp_code: str):
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(url, auth=auth, data=data)
                 if resp.status_code >= 400:
-                    logger.error(f"[TWILIO ERROR] {resp.text}")
+                    logger.error("event=auth.otp.sms outcome=failure user_id=%s", user_id or "unknown")
                 else:
-                    logger.info(f"[SMS SENT VIA TWILIO] To {phone_number}")
+                    logger.info("event=auth.otp.sms outcome=sent user_id=%s", user_id or "unknown")
         except Exception as e:
-            logger.error(f"[SMS DISPATCH EXCEPTION] {str(e)}")
+            logger.error("event=auth.otp.sms outcome=failure user_id=%s", user_id or "unknown")
     
     elif settings.FAST2SMS_API_KEY:
         clean_number = "".join([c for c in phone_number if c.isdigit()])[-10:]
@@ -89,18 +98,13 @@ async def send_otp_via_sms(phone_number: str, otp_code: str):
                     "numbers": clean_number
                 }
                 resp = await client.post("https://www.fast2sms.com/dev/bulkV2", headers=headers, data=payload)
-                logger.info(f"[SMS SENT VIA FAST2SMS] To {clean_number} | Response: {resp.text}")
+                outcome = "failure" if resp.status_code >= 400 else "sent"
+                logger.info("event=auth.otp.sms outcome=%s user_id=%s", outcome, user_id or "unknown")
         except Exception as e:
-            logger.error(f"[FAST2SMS EXCEPTION] {str(e)}")
+            logger.error("event=auth.otp.sms outcome=failure user_id=%s", user_id or "unknown")
 
     else:
-        print(f"\n==================================================================")
-        print(f"📱 [SMS OTP DISPATCH] ClaimPilot Telephony Service")
-        print(f"To: {phone_number}")
-        print(f"Code: {otp_code}")
-        print(f"Message: {sms_body}")
-        print(f"==================================================================\n")
-        logger.info(f"[MOCK SMS] Dispatched OTP {otp_code} to {phone_number}")
+        logger.info("event=auth.otp.sms outcome=not_configured user_id=%s", user_id or "unknown")
 
 
 @router.post("/send", response_model=OtpSendResponse, status_code=status.HTTP_200_OK)
@@ -111,9 +115,13 @@ async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
     
     user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
     existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
+    user_id = existing_user.get("id") if isinstance(existing_user, dict) else None
     
-    # Format OTP to always maintain 6 digits with leading zeroes
-    otp_code = f"{random.randint(0, 999999):06d}"
+    # A fixed code is available only for SMS in development, validated at import.
+    if payload.channel == OtpChannel.sms and _dev_fixed_code is not None:
+        otp_code = _dev_fixed_code
+    else:
+        otp_code = f"{random.randint(0, 999999):06d}"
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
@@ -129,14 +137,14 @@ async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
 
     try:
         await db.insert("otp_verifications", otp_record)
-        logger.info(f"[OTP CREATED] Target: {clean_identifier} | Code: {otp_code}")
+        logger.info("event=auth.otp.send outcome=recorded user_id=%s", user_id or "unknown")
     except Exception as e:
-        logger.error(f"[OTP DB ERROR] Could not persist OTP: {str(e)}")
+        logger.error("event=auth.otp.send outcome=record_failed user_id=%s", user_id or "unknown")
 
     if payload.channel == OtpChannel.email:
         background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
     else:
-        background_tasks.add_task(send_otp_via_sms, clean_identifier, otp_code)
+        background_tasks.add_task(send_otp_via_sms, clean_identifier, otp_code, user_id)
 
     return OtpSendResponse(
         message=f"6-digit verification code dispatched via {payload.channel.value.upper()}.",
@@ -163,13 +171,6 @@ async def verify_otp(payload: OtpVerifyRequest):
         password_val = meta.get("password") if isinstance(meta, dict) else getattr(meta, "password", None)
 
     # ==================== REGISTER / OTP DEBUGGER ====================
-    print("\n\033[1;36m" + "=" * 60)
-    print("📝 [REGISTER / OTP VERIFY DEBUGGER]")
-    print(f"  • Identifier (Email/Phone) : '{identifier}'")
-    print(f"  • Entered OTP Code         : '{user_otp}'")
-    print(f"  • Raw Metadata Object      : {meta} (Type: {type(meta)})")
-    print(f"  • Extracted Password       : '{password_val}'")
-    print("=" * 60 + "\033[0m\n")
     # =================================================================
 
     # Query latest unverified OTP record for the identifier
@@ -292,9 +293,9 @@ async def verify_otp(payload: OtpVerifyRequest):
 
             auth_res = supabase_admin.auth.admin.create_user(create_params)
             user_id = auth_res.user.id
-            logger.info(f"[SUPABASE AUTH CREATED] Created auth.users with password: {user_id}")
+            logger.info("event=auth.otp.verify outcome=auth_user_created user_id=%s", user_id)
         except Exception as auth_err:
-            logger.warning(f"[SUPABASE AUTH CREATION WARN]: {str(auth_err)}")
+            logger.warning("event=auth.otp.verify outcome=auth_user_creation_failed")
             import uuid
             user_id = str(uuid.uuid4())
 
@@ -313,7 +314,7 @@ async def verify_otp(payload: OtpVerifyRequest):
             supabase_admin.table("profiles").insert(new_user).execute()
             profile = new_user
         except Exception as db_err:
-            logger.error(f"[PROFILES DB INSERT ERROR]: {str(db_err)}")
+            logger.error("event=auth.otp.verify outcome=profile_insert_failed user_id=%s", user_id)
             profile = {"id": user_id, "full_name": full_name, "email": email, "phone_number": phone_number, "dob": dob, "role": role}
 
     # Issue session access token upon successful OTP verification
@@ -323,6 +324,7 @@ async def verify_otp(payload: OtpVerifyRequest):
         "role": role,
         "name": full_name
     })
+    logger.info("event=auth.otp.verify outcome=success user_id=%s", user_id)
 
     return OtpVerifyResponse(
         message="Identity successfully verified.",
