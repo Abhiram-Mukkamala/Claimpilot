@@ -1079,7 +1079,7 @@ SMTP_FROM_EMAIL="notifications@claimpilot.com"
 SMTP_HOST="smtp.resend.com"
 SMTP_PORT=587
 SMTP_USER="resend"
-SMTP_PASSWORD="re_SbWKS8wz_CufEEWXAfcpHPmCDLN7nwyad"   # Your API key
+SMTP_PASSWORD="YOUR_SMTP_APP_PASSWORD"   # Your API key
 SMTP_FROM_EMAIL="onboarding@resend.dev"
 SMTP_FROM_NAME="ClaimPilot"
 SUPPORT_EMAIL="your-email@gmail.com"
@@ -1170,7 +1170,7 @@ The SMS dispatch chain in `app/api/v1/auth_otp.py` → `send_otp_via_sms()`:
 3. Set:
 
 ```env
-FAST2SMS_API_KEY="HNs6ziSp2VQCjU9nb..."
+FAST2SMS_API_KEY="YOUR_FAST2SMS_API_KEY"
 ```
 
 4. Fast2SMS only accepts **10-digit Indian mobile numbers** (the backend strips the `+91` prefix automatically).
