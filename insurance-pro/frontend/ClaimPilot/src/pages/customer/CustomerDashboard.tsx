@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/authStore';
 import { claimsApi } from '../../services/claimsApi';
 import type { Claim } from '../../types/claim';
@@ -10,16 +10,27 @@ import { useGSAP, animateFadeIn, animateStagger } from '../../lib/gsap';
 
 export const CustomerDashboard = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     claimsApi.getClaims().then(data => {
-      setClaims(data);
+      setClaims(data || []);
+      setLoading(false);
+    }).catch((err) => {
+      console.error('Error loading customer claims:', err);
+      if (err?.status === 401 || err?.statusCode === 401) {
+        navigate('/login', { replace: true });
+        return;
+      }
+      setErrorMessage(err?.status === 401 || err?.statusCode === 401 ? 'Your session has expired.' : 'Unable to load claims. Please try again.');
+      setClaims([]);
       setLoading(false);
     });
-  }, []);
+  }, [navigate]);
 
   // Stagger sections in once data is ready
   useGSAP(() => {
@@ -58,6 +69,11 @@ export const CustomerDashboard = () => {
         <h1 className="text-2xl mb-2">Good evening, {user?.name.split(' ')[0] || 'User'}</h1>
         <p className="text-muted">Your insurance claims portal.</p>
       </section>
+      {errorMessage && (
+        <div role="alert" style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
+          {errorMessage}
+        </div>
+      )}
 
       {/* Primary Call to Action */}
       <Link to="/customer/new-claim" className="cd-cta">
@@ -77,7 +93,9 @@ export const CustomerDashboard = () => {
 
       {/* Active Claim Focus */}
       {loading ? (
-        <p className="text-muted">Loading your claims...</p>
+        <div className="flex flex-col gap-sm" aria-label="Loading claims">
+          {[1, 2, 3].map((item) => <div key={item} style={{ height: '4rem', backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius-md)' }} />)}
+        </div>
       ) : activeClaim && (
         <section className="cd-active">
           <h2 className="text-sm text-muted uppercase font-bold mb-4">Active Claim</h2>
@@ -112,6 +130,9 @@ export const CustomerDashboard = () => {
             </Link>
           </Card>
         </section>
+      )}
+      {!loading && claims.length === 0 && (
+        <p className="text-muted">No claims yet. Start a new claim to see it here.</p>
       )}
 
       {/* Past Claims */}

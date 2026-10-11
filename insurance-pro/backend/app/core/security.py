@@ -11,6 +11,8 @@ security_bearer = HTTPBearer(auto_error=False)
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Generate signed JWT token."""
     to_encode = data.copy()
+    to_encode["token_type"] = "access"
+    to_encode["purpose"] = "access"
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -19,11 +21,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_claim_action_token(claim_id: str, action: str, expires_hours: int = 48) -> str:
+CLAIM_ACTIONS = {"settlement_confirmation", "evidence_reupload"}
+
+
+def create_claim_action_token(claim_id: str, action: str, expires_minutes: int = 30) -> str:
     """Create tamper-proof single-purpose token for magic links in emails."""
-    expire = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
+    if action not in CLAIM_ACTIONS or not claim_id or not 1 <= expires_minutes <= 60:
+        raise ValueError("Invalid claim action token parameters")
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     payload = {
         "sub": claim_id,
+        "claim_id": claim_id,
+        "token_type": "claim_action",
         "purpose": action,
         "exp": expire,
         "iat": datetime.now(timezone.utc)
@@ -33,19 +42,39 @@ def create_claim_action_token(claim_id: str, action: str, expires_hours: int = 4
 
 def decode_token(token: str) -> Dict[str, Any]:
     """Decode and validate a JWT token signature and expiration."""
+    algorithm = settings.JWT_ALGORITHM
+    if not algorithm or algorithm.strip().lower() == "none":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        return payload
-    except JWTError:
-        try:
-            unverified = jwt.get_unverified_claims(token)
-            return unverified
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"message": "Invalid or expired token", "error": str(e)},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        return jwt.decode(token, settings.JWT_SECRET, algorithms=[algorithm])
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+def decode_claim_action_token(token: str, claim_id: str, action: str) -> Dict[str, Any]:
+    """Validate a claim-bound action link without treating it as a session."""
+    payload = decode_token(token)
+    if (
+        action not in CLAIM_ACTIONS
+        or payload.get("token_type") != "claim_action"
+        or payload.get("purpose") != action
+        or payload.get("claim_id") != claim_id
+        or payload.get("sub") != claim_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid claim action token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
 
 
 async def get_current_user(
@@ -65,12 +94,16 @@ async def get_current_user(
     token = credentials.credentials
     try:
         payload = decode_token(token)
-    except Exception as e:
+        if payload.get("token_type") != "access" or payload.get("purpose") != "access":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Could not validate credentials", "error": str(e)},
+            detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from exc
     
     user_id: Optional[str] = payload.get("sub") or payload.get("id") or payload.get("user_id")
     if not user_id:
