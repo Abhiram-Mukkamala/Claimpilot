@@ -4,15 +4,17 @@
 
 | File | Size (bytes) | Size (human-readable) | Status |
 |---|---|---|---|
-| `insurance-pro/backend/app/models/weights/rt-detr.pt` | 66,248,189 | 63.2 MB | Tracked, should use Git LFS |
-| `insurance-pro/backend/app/models/weights/yolov11m.pt` | 40,511,404 | 38.6 MB | Tracked, should use Git LFS |
+| `insurance-pro/backend/app/models/weights/rt-detr.pt` | 66,248,189 | 63,248,189 bytes | Tracked, should use Git LFS |
+| `insurance-pro/backend/app/models/weights/yolov11m.pt` | 40,511,404 | 40,511,404 bytes | Tracked, should use Git LFS |
 
 ## All .pt/.pth/.onnx Files
 
 | File | Size (bytes) | Size (human-readable) | Tracked |
 |---|---|---|---|
-| `insurance-pro/backend/app/models/weights/rt-detr.pt` | 66,248,189 | 63.2 MB | Yes |
-| `insurance-pro/backend/app/models/weights/yolov11m.pt` | 40,511,404 | 38.6 MB | Yes |
+| `insurance-pro/backend/app/models/weights/rt-detr.pt` | 66,248,189 | 66,248,189 bytes | Yes |
+| `insurance-pro/backend/app/models/weights/yolov11m.pt` | 40,511,404 | 40,511,404 bytes | Yes |
+
+**Total model weights: 106,759,593 bytes (106.8 MB)**
 
 ## Git LFS Recommendation
 

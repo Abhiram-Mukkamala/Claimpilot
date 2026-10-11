@@ -1,5 +1,7 @@
 # ClaimPilot AI — Motor Insurance Claims Platform
 
+**Note:** The following statements must be updated once `feat/fraud-port` merges: pHash fraud engine implementation status, Narrative-severity check implementation status.
+
 **ClaimPilot** is an AI-powered motor insurance claims management system that connects policyholders with insurance adjusters to streamline claim filing, AI damage detection, and settlement approval. Built for a hackathon demo on Oct 24, 2026.
 
 ---

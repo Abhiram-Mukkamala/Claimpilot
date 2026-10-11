@@ -1,5 +1,7 @@
 # Architecture — ClaimPilot AI
 
+**Note:** The following statements must be updated once `feat/fraud-port` merges: pHash fraud engine implementation status, Narrative-severity check implementation status.
+
 ## Components (what exists today)
 
 | Layer | Technology | Details |
