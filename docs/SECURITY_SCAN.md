@@ -20,10 +20,10 @@
 | Severity | Location | What to Do |
 |---|---|---|
 | HIGH | `origin/insurance-pro:backend/README.md:128-129` - `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` with real JWT values | Remove all real key values from README. Keep only variable NAMES/descriptions, never real keys. |
-| HIGH | `origin/insurance-pro:backend/README.md:133` - `JWT_SECRET="your-secure-random-secret-minimum-32-chars"` | Replace with placeholder value like `your-jwt-secret-key`. |
-| HIGH | `origin/insurance-pro:backend/README.md:1051` - Example key `re_SbWKS8wz_CufEEWXAfcpHPmCDLN7nwyad` in instructions | Remove example key from README. Keep only variable NAMES/descriptions. |
-| HIGH | `origin/insurance-pro:backend/app/core/config.py:23` - `JWT_SECRET` default contains real-looking secret `claimpilot-secure-production-jwt-secret-key-2026-v1` | Remove the default value or replace with placeholder. |
-| HIGH | `origin/insurance-pro:backend/app/core/config.py:39` - `SMTP_PASSWORD` default contains `mock-smtp-password` | Remove the default value or replace with placeholder. |
+| HIGH | `origin/insurance-pro:backend/README.md:133` - `JWT_SECRET="your..."` | Replace with placeholder value like `your-jwt-secret-key`. |
+| HIGH | `origin/insurance-pro:backend/README.md:1051` - Example key `re_Sb...` in instructions | Remove example key from README. Keep only variable NAMES/descriptions. |
+| HIGH | `origin/insurance-pro:backend/app/core/config.py:23` - `JWT_SECRET` default contains real-looking secret `claim...` | Remove the default value or replace with placeholder. |
+| HIGH | `origin/insurance-pro:backend/app/core/config.py:39` - `SMTP_PASSWORD` default contains `mock...` | Remove the default value or replace with placeholder. |
 
 ## Medium
 
