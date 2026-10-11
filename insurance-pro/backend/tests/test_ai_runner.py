@@ -305,6 +305,99 @@ def test_upload_analysis_hashes_compares_persists_and_runs_once(runtime, monkeyp
     assert len(model_calls) == 1
 
 
+def test_evidence_catalog_failure_and_retry_do_not_duplicate_analysis(runtime, monkeypatch):
+    from fastapi import BackgroundTasks, HTTPException
+
+    from app.schemas.claim import ClaimEvidenceCreate
+
+    # Load only this route module with a fake DB import, avoiding the app router
+    # package's unrelated Supabase client startup during this isolated test.
+    fake_database_module = ModuleType("app.db.supabase")
+    fake_database_module.db = object()
+    absent = object()
+    original_database_module = sys.modules.get("app.db.supabase", absent)
+    sys.modules["app.db.supabase"] = fake_database_module
+    try:
+        storage_spec = importlib.util.spec_from_file_location(
+            "_claimpilot_storage_route_test",
+            BACKEND / "app" / "api" / "v1" / "storage.py",
+        )
+        storage = importlib.util.module_from_spec(storage_spec)
+        storage_spec.loader.exec_module(storage)
+    finally:
+        if original_database_module is absent:
+            sys.modules.pop("app.db.supabase", None)
+        else:
+            sys.modules["app.db.supabase"] = original_database_module
+
+    runtime.evidence.clear()
+    monkeypatch.setattr(storage, "db", runtime)
+    failed_photo_two_once = False
+    persisted_analysis_rows = {"claim_ai_analysis": 0, "claim_fraud_analyses": 0}
+    original_insert = runtime.insert
+
+    async def insert_with_photo_two_failure(table, data):
+        nonlocal failed_photo_two_once
+        if table == "claim_evidence":
+            if data["file_url"].endswith("photo-2.png") and not failed_photo_two_once:
+                failed_photo_two_once = True
+                raise RuntimeError("simulated catalog write failure")
+            row = {**data, "id": f"evidence-{len(runtime.evidence) + 1}"}
+            runtime.evidence.append(row)
+            return [row]
+        if table in persisted_analysis_rows:
+            persisted_analysis_rows[table] += 1
+        return await original_insert(table, data)
+
+    monkeypatch.setattr(runtime, "insert", insert_with_photo_two_failure)
+    inference_calls = []
+
+    class CountingModel:
+        def predict(self, *_args, **_kwargs):
+            inference_calls.append(True)
+            return [EmptyPrediction()]
+
+    monkeypatch.setattr(ai_runner, "get_models", lambda: (CountingModel(), None))
+    user = {"user_id": "user-123", "role": "customer"}
+
+    async def catalog(file_name, tasks):
+        return await storage.catalog_evidence(
+            ClaimEvidenceCreate(
+                claim_id=runtime.claim_id,
+                file_url=f"https://unit-test.invalid/{file_name}",
+                storage_path=f"evidence/{file_name}",
+                file_type="image/png",
+                category="photo",
+            ),
+            tasks,
+            user,
+        )
+
+    first_upload_tasks = BackgroundTasks()
+    first_result = asyncio.run(catalog("photo-1.png", first_upload_tasks))
+    assert first_result["message"] == "Evidence cataloged successfully"
+    asyncio.run(first_upload_tasks())
+
+    failed_retry_tasks = BackgroundTasks()
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(catalog("photo-2.png", failed_retry_tasks))
+    assert error.value.status_code == 500
+    assert not failed_retry_tasks.tasks
+    assert len(runtime.evidence) == 1
+
+    retry_tasks = BackgroundTasks()
+    retry_result = asyncio.run(catalog("photo-2.png", retry_tasks))
+    assert retry_result["message"] == "Evidence cataloged successfully"
+    assert len(runtime.evidence) == 2
+    asyncio.run(retry_tasks())
+
+    assert len(inference_calls) == 1
+    assert persisted_analysis_rows == {"claim_ai_analysis": 1, "claim_fraud_analyses": 1}
+    assert runtime.ai_analysis["claim_id"] == runtime.claim_id
+    assert runtime.fraud_analysis["claim_id"] == runtime.claim_id
+    assert runtime.claim["status"] == "under_review"
+
+
 def test_missing_phash_column_is_recorded_with_migration_guidance(runtime):
     runtime.phash_missing = True
 
