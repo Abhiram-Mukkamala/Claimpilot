@@ -1,0 +1,283 @@
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Query
+from typing import Dict, Any, List, Optional
+
+from app.core.config import settings
+from app.core.security import get_current_user, require_roles, create_claim_action_token
+from app.db.supabase import db
+from app.schemas.claim import (
+    AgentActionType,
+    AgentActionRequest,
+    ClaimStatus,
+    ClaimResponse
+)
+from app.services.email import (
+    send_agent_approval_email,
+    send_agent_rejection_email,
+    send_request_info_email
+)
+
+router = APIRouter(prefix="/agent", tags=["Agent Adjudication Workbench"])
+
+
+async def _get_claim_by_id_or_number(claim_id: str) -> Optional[Dict[str, Any]]:
+    """Helper to query claims table by either database UUID or human-readable claim_number."""
+    if claim_id.startswith("CLM-"):
+        query_filter = {"claim_number": f"eq.{claim_id}"}
+    else:
+        query_filter = {"id": f"eq.{claim_id}"}
+
+    return await db.select("claims", params=query_filter, single=True)
+
+
+@router.get("/claims", summary="Fetch Agent Adjudication Queue with triage filters")
+async def get_agent_claims_queue(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    risk_filter: Optional[str] = Query(None, alias="risk"),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    user: Dict[str, Any] = Depends(require_roles(["agent", "admin"]))
+):
+    params: Dict[str, str] = {"order": "created_at.desc", "limit": str(limit)}
+    if status_filter:
+        params["status"] = f"eq.{status_filter}"
+    if risk_filter:
+        params["risk_level"] = f"eq.{risk_filter}"
+    if search:
+        params["or"] = f"(claim_number.ilike.*{search}*,policy_number.ilike.*{search}*,driver_name.ilike.*{search}*)"
+
+    claims = await db.select("claims", params=params)
+    return {"count": len(claims) if isinstance(claims, list) else 0, "claims": claims}
+
+
+@router.get("/claims/{claim_id}", summary="Fetch single claim with deep investigation context")
+async def get_agent_claim_detail(
+    claim_id: str,
+    user: Dict[str, Any] = Depends(require_roles(["agent", "admin"]))
+):
+    claim = await _get_claim_by_id_or_number(claim_id)
+    if not claim:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Claim not found in adjudication database", "claim_id": claim_id}
+        )
+
+    # Use resolved UUID primary key for secondary table joins
+    real_claim_id = claim["id"]
+
+    profile = await db.select("profiles", params={"id": f"eq.{claim['user_id']}"}, single=True)
+    evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
+    ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{real_claim_id}"}, single=True)
+
+    return {
+        "claim": claim,
+        "claimant": profile,
+        "evidence": evidence or [],
+        "ai_analysis": ai_analysis
+    }
+
+
+@router.post(
+    "/claims/{claim_id}/action",
+    summary="Execute Agent Adjudication Workflow State Machine",
+    status_code=status.HTTP_200_OK
+)
+
+async def process_agent_claim_action(
+    claim_id: str,
+    payload: AgentActionRequest,
+    background_tasks: BackgroundTasks,
+    user: Dict[str, Any] = Depends(require_roles(["agent", "admin"]))
+):
+    claim = await _get_claim_by_id_or_number(claim_id)
+    if not claim:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Target claim not found", "claim_id": claim_id}
+        )
+
+    real_claim_id = claim["id"]
+    current_status = claim.get("status")
+    terminal_statuses = [ClaimStatus.settlement_accepted.value, ClaimStatus.rejected.value]
+    if current_status in terminal_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": f"Illegal state transition. Cannot modify claim in terminal state '{current_status}'.",
+                "current_status": current_status,
+                "allowed_actions": []
+            }
+        )
+
+    claimant = await db.select("profiles", params={"id": f"eq.{claim['user_id']}"}, single=True)
+    recipient_email = claimant.get("email") if claimant else f"customer_{claim['user_id'][:6]}@claimpilot.com"
+    claimant_name = claimant.get("full_name") if claimant else claim.get("driver_name", "Valued Policyholder")
+
+    ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{real_claim_id}"}, single=True)
+    min_cost = float(ai_analysis.get("estimated_cost_min", 8000.00)) if ai_analysis else 8000.00
+    max_cost = float(ai_analysis.get("estimated_cost_max", 12000.00)) if ai_analysis else 12000.00
+
+    agent_id = user["user_id"]
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if payload.action == AgentActionType.APPROVE:
+        new_status = ClaimStatus.agent_approved.value
+
+        # Calculate calculated settlement offer (using max estimate or custom payload value)
+        calculated_offer = payload.approved_amount if hasattr(payload, 'approved_amount') and payload.approved_amount else max_cost
+
+        update_data = {
+            "status": new_status,
+            "assigned_agent_id": agent_id,
+            "approved_amount": calculated_offer,
+            "settlement_offer_amount": calculated_offer,
+            "agent_custom_notes": payload.reason or payload.custom_notes or "",
+            "updated_at": timestamp
+        }
+
+        try:
+            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Failed to update claim to approved status", "error": str(e)}
+            )
+
+        settlement_token = create_claim_action_token(claim_id=real_claim_id, action="settlement_confirmation", expires_hours=48)
+
+        background_tasks.add_task(
+            send_agent_approval_email,
+            to_email=recipient_email,
+            claim_number=claim["claim_number"],
+            token=settlement_token,
+            min_cost=min_cost,
+            max_cost=max_cost,
+            claimant_name=claimant_name
+        )
+
+        return {
+            "status": "success",
+            "action": payload.action.value,
+            "claim_id": real_claim_id,
+            "claim_number": claim["claim_number"],
+            "previous_status": current_status,
+            "new_status": new_status,
+            "estimated_bounds": {"min": min_cost, "max": max_cost},
+            "settlement_token": settlement_token,
+            "message": "Claim successfully approved. Settlement confirmation instructions dispatched to claimant."
+        }
+
+    elif payload.action == AgentActionType.REJECT:
+        if not payload.reason or len(payload.reason.strip()) < 5:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "A detailed rejection reason is mandatory when executing REJECT action.",
+                    "field": "reason"
+                }
+            )
+
+        new_status = ClaimStatus.rejected.value
+        rejection_reason = payload.reason.strip()
+        update_data = {
+            "status": new_status,
+            "agent_rejection_reason": rejection_reason,
+            "assigned_agent_id": agent_id,
+            "updated_at": timestamp
+        }
+
+        try:
+            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Failed to update claim rejection in database", "error": str(e)}
+            )
+
+        background_tasks.add_task(
+            send_agent_rejection_email,
+            to_email=recipient_email,
+            claim_number=claim["claim_number"],
+            reason=rejection_reason,
+            claimant_name=claimant_name,
+            support_email=settings.SUPPORT_EMAIL
+        )
+
+        return {
+            "status": "success",
+            "action": payload.action.value,
+            "claim_id": real_claim_id,
+            "claim_number": claim["claim_number"],
+            "previous_status": current_status,
+            "new_status": new_status,
+            "agent_rejection_reason": rejection_reason,
+            "support_contact": settings.SUPPORT_EMAIL,
+            "message": "Claim rejected. Formal notification dispatched to claimant with logged rationale."
+        }
+
+    elif payload.action == AgentActionType.REQUEST_INFO:
+        if not payload.requested_items or len(payload.requested_items) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "At least one requested item key must be provided in 'requested_items'.",
+                    "field": "requested_items"
+                }
+            )
+
+        new_status = ClaimStatus.action_required.value
+        existing_notes = claim.get("requested_info_notes") or []
+        if not isinstance(existing_notes, list):
+            existing_notes = []
+
+        new_note_entry = {
+            "timestamp": timestamp,
+            "agent_id": agent_id,
+            "items": payload.requested_items,
+            "custom_notes": payload.custom_notes or ""
+        }
+        updated_notes = existing_notes + [new_note_entry]
+
+        update_data = {
+            "status": new_status,
+            "requested_info_notes": updated_notes,
+            "assigned_agent_id": agent_id,
+            "updated_at": timestamp
+        }
+
+        try:
+            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Failed to update claim notes in database", "error": str(e)}
+            )
+
+        upload_magic_token = create_claim_action_token(claim_id=real_claim_id, action="evidence_reupload", expires_hours=72)
+
+        background_tasks.add_task(
+            send_request_info_email,
+            to_email=recipient_email,
+            claim_number=claim["claim_number"],
+            requested_items=payload.requested_items,
+            magic_token=upload_magic_token,
+            claimant_name=claimant_name
+        )
+
+        return {
+            "status": "success",
+            "action": payload.action.value,
+            "claim_id": real_claim_id,
+            "claim_number": claim["claim_number"],
+            "previous_status": current_status,
+            "new_status": new_status,
+            "requested_items": payload.requested_items,
+            "magic_token": upload_magic_token,
+            "message": "Claim flagged as 'action_required'. Evidence upload portal link dispatched."
+        }
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": f"Unsupported agent action '{payload.action}'."}
+        )

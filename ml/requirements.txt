@@ -1,0 +1,27 @@
+# Deep Learning Core
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Computer Vision & Image/Video Processing
+ultralytics>=8.3.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+scikit-image>=0.21.0
+
+# 3D Data Processing & Geometry
+open3d>=0.17.0
+trimesh>=4.0.0
+scipy>=1.10.0
+numpy>=1.24.0
+
+# Model Architectures & Segmentation
+transformers>=4.36.0
+sam2>=1.0.0; extra == "sam2" # Or install via SAM2 repository
+
+# Datasets & ML Utilities
+fiftyone>=0.22.0
+huggingface-hub>=0.20.0
+tqdm>=4.66.0
+matplotlib>=3.7.0
+pyyaml>=6.0
