@@ -28,19 +28,14 @@ async def _dispatch_email(to_email: str, subject: str, html_body: str, plain_bod
         try:
             sg = SendGridAPIClient(api_key)
             response = sg.send(message)
-            logger.info(f"[SENDGRID DISPATCHED] Subject: '{subject}' to {to_email} | Status: {response.status_code}")
+            logger.info("event=email.dispatch outcome=sent status=%s", response.status_code)
             return response.status_code in (200, 201, 202)
         except Exception as e:
-            logger.error(f"[SENDGRID ERROR] Failed sending to {to_email}: {str(e)}")
+            logger.error("event=email.dispatch outcome=failed error_type=%s", type(e).__name__)
             return False
 
     # Terminal mock fallback if SENDGRID_API_KEY is not set
-    print(f"\n==================================================================")
-    print(f"📧 [MOCK EMAIL DISPATCH] ClaimPilot Notification Service")
-    print(f"To: {to_email}")
-    print(f"Subject: {subject}")
-    print(f"==================================================================\n")
-    logger.info(f"[MOCK EMAIL DISPATCHED] To: {to_email} | Subject: {subject}")
+    logger.info("event=email.mock_dispatch outcome=completed")
     return True
 
 

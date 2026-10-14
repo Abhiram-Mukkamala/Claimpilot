@@ -21,12 +21,14 @@ from app.services.email import _dispatch_email
 
 router = APIRouter(prefix="/auth/otp", tags=["Dual OTP Authentication (Email & SMS)"])
 logger = logging.getLogger("claimpilot.otp")
+MAX_OTP_SENDS = 3
+OTP_SEND_WINDOW_MINUTES = 10
 
 _environment = os.environ.get("ENVIRONMENT", "").strip().lower()
 _dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
 if _dev_fixed_code is not None:
-    if _environment != "development":
-        raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development")
+    if _environment not in {"development", "test"}:
+        raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development or test")
     if len(_dev_fixed_code) != 6 or not _dev_fixed_code.isdigit():
         raise RuntimeError("OTP_DEV_FIXED_CODE must be exactly six digits")
 
@@ -116,13 +118,32 @@ async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
     user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
     existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
     user_id = existing_user.get("id") if isinstance(existing_user, dict) else None
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(minutes=OTP_SEND_WINDOW_MINUTES)
+    recent_requests = await db.select(
+        "otp_verifications",
+        params={
+            "identifier": f"eq.{clean_identifier}",
+            "created_at": f"gte.{window_start.isoformat()}",
+            "select": "id",
+            "limit": str(MAX_OTP_SENDS),
+        },
+    )
+    if not isinstance(recent_requests, list):
+        logger.error("event=auth.otp.send outcome=rate_limit_check_failed")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send a verification code.")
+    if len(recent_requests) >= MAX_OTP_SENDS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification codes requested. Please try again later.",
+        )
     
-    # A fixed code is available only for SMS in development, validated at import.
-    if payload.channel == OtpChannel.sms and _dev_fixed_code is not None:
+    # A fixed code is available only in development/test, validated at import.
+    if _dev_fixed_code is not None:
         otp_code = _dev_fixed_code
     else:
         otp_code = f"{random.randint(0, 999999):06d}"
-    now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
     otp_record = {
@@ -140,6 +161,10 @@ async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
         logger.info("event=auth.otp.send outcome=recorded user_id=%s", user_id or "unknown")
     except Exception as e:
         logger.error("event=auth.otp.send outcome=record_failed user_id=%s", user_id or "unknown")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send a verification code.",
+        ) from e
 
     if payload.channel == OtpChannel.email:
         background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
@@ -192,24 +217,41 @@ async def verify_otp(payload: OtpVerifyRequest):
 
     active_otp = records[0]
     otp_id = active_otp["id"]
-    current_attempts = active_otp.get("attempts", 0)
+    try:
+        current_attempts = int(active_otp.get("attempts", 0) or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code is invalid. Please request a new OTP.",
+        ) from exc
 
     # Validate expiration
     expires_at_raw = active_otp.get("expires_at")
-    if expires_at_raw:
+    try:
+        if not expires_at_raw:
+            raise ValueError("Missing OTP expiry")
         expires_at_dt = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) > expires_at_dt:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Verification code has expired. Please request a new OTP."
-            )
+        if expires_at_dt.tzinfo is None:
+            expires_at_dt = expires_at_dt.replace(tzinfo=timezone.utc)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new OTP.",
+        ) from exc
+    if datetime.now(timezone.utc) >= expires_at_dt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new OTP."
+        )
 
     # Check attempt threshold
     if current_attempts >= settings.MAX_OTP_ATTEMPTS:
-        await db.update("otp_verifications", filters={"id": f"eq.{otp_id}"}, data={"is_verified": False, "attempts": current_attempts + 1})
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Maximum verification attempts exceeded (3/3). Please request a fresh code."
+            detail=(
+                f"Maximum verification attempts exceeded "
+                f"({settings.MAX_OTP_ATTEMPTS}/{settings.MAX_OTP_ATTEMPTS}). Please request a fresh code."
+            )
         )
 
     # Guarantee 6-digit string alignment for comparison
@@ -218,19 +260,37 @@ async def verify_otp(payload: OtpVerifyRequest):
 
     if db_otp != user_otp:
         new_attempts = current_attempts + 1
-        await db.update("otp_verifications", filters={"id": f"eq.{otp_id}"}, data={"attempts": new_attempts})
-        remaining = settings.MAX_OTP_ATTEMPTS - new_attempts
+        attempt_update = await db.update(
+            "otp_verifications",
+            filters={
+                "id": f"eq.{otp_id}",
+                "is_verified": "eq.false",
+                "attempts": f"eq.{current_attempts}",
+            },
+            data={"attempts": new_attempts},
+        )
+        if not attempt_update:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Verification attempts are being processed. Please try again.",
+            )
+        remaining = max(settings.MAX_OTP_ATTEMPTS - new_attempts, 0)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid verification code. {remaining} attempt(s) remaining."
         )
 
     # Mark OTP as verified
-    await db.update(
+    claimed_otp = await db.update(
         "otp_verifications", 
-        filters={"id": f"eq.{otp_id}"}, 
+        filters={"id": f"eq.{otp_id}", "is_verified": "eq.false"},
         data={"is_verified": True, "attempts": current_attempts + 1}
     )
+    if not claimed_otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has already been used. Please request a new OTP.",
+        )
 
     channel = active_otp.get("channel", "email")
     user_filter = "email" if channel == "email" else "phone_number"

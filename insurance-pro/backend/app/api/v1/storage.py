@@ -2,10 +2,14 @@ import os
 import uuid
 import re
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+import logging
+from urllib.parse import unquote, urlparse
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import Dict, Any
 
 from app.core.config import settings
+from app.core.authorization import require_customer_claim_owner, user_id
+from app.core.request_logging import log_route_exception
 from app.core.security import get_current_user
 from app.db.supabase import db
 from app.schemas.claim import (
@@ -17,6 +21,7 @@ from app.schemas.claim import (
 from app.services.ai_runner import trigger_ai_assessment
 
 router = APIRouter(prefix="/storage", tags=["Storage & Evidence Uploads"])
+logger = logging.getLogger("claimpilot.storage")
 
 # Constants for evidence validation
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB Supabase Limit
@@ -32,8 +37,11 @@ MAX_VIDEO_COUNT = 2
 )
 async def generate_presigned_upload_url(
     payload: PresignedUploadUrlRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
+    if user.get("role") != "customer":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only customers can upload claim evidence.")
     category_val = payload.category.value if hasattr(payload.category, 'value') else str(payload.category)
 
     # 1. Enforce 50MB max file size limit check
@@ -50,7 +58,7 @@ async def generate_presigned_upload_url(
     unique_prefix = uuid.uuid4().hex[:12]
     timestamp = int(datetime.now(timezone.utc).timestamp())
     
-    file_path = f"evidence/{category_val}/{user['user_id']}/{timestamp}_{unique_prefix}_{clean_name}"
+    file_path = f"evidence/{category_val}/{user_id(user)}/{timestamp}_{unique_prefix}_{clean_name}"
     expires_in = 900
 
     try:
@@ -73,11 +81,12 @@ async def generate_presigned_upload_url(
             category=category_val
         )
     except Exception as e:
+        request_id = log_route_exception(logger, request, "storage.presigned_url_failed", e)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "message": "Failed to generate storage upload URL from Supabase",
-                "error": str(e),
+                "error": f"Request ID: {request_id}",
                 "bucket": settings.SUPABASE_STORAGE_BUCKET
             }
         )
@@ -92,6 +101,7 @@ async def generate_presigned_upload_url(
 async def catalog_evidence(
     payload: ClaimEvidenceCreate,
     background_tasks: BackgroundTasks,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     category_val = payload.category.value if hasattr(payload.category, 'value') else str(payload.category)
@@ -106,25 +116,28 @@ async def catalog_evidence(
             detail={"message": "Target claim not found", "claim_id": payload.claim_id}
         )
     
-    claim_user_id = claim.get("user_id") or claim.get("customer_id")
-    claim_assigned_agent_id = claim.get("assigned_agent_id")
-    current_user_id = user.get("user_id") or user.get("id") or user.get("sub")
-    user_role = user.get("role", "customer")
+    require_customer_claim_owner(claim, user)
+    real_claim_id = claim.get("id")
 
-    is_authorized = (
-        str(claim_user_id) == str(current_user_id) or
-        (claim_assigned_agent_id and str(claim_assigned_agent_id) == str(current_user_id)) or
-        user_role in ["agent", "admin"]
-    )
-
-    if not is_authorized:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"message": "You are not authorized to catalog evidence for this claim."}
-        )
+    configured_url = urlparse(settings.SUPABASE_URL)
+    supplied_url = urlparse(payload.file_url)
+    object_prefix = f"/storage/v1/object/public/{settings.SUPABASE_STORAGE_BUCKET}/"
+    if (
+        supplied_url.scheme != configured_url.scheme
+        or supplied_url.netloc != configured_url.netloc
+        or not supplied_url.path.startswith(object_prefix)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Evidence URL is not an authorized storage object.")
+    storage_path = unquote(supplied_url.path[len(object_prefix):])
+    expected_path_prefix = f"evidence/{category_val}/{user_id(user)}/"
+    if (
+        not storage_path.startswith(expected_path_prefix)
+        or any(part in {"", ".", ".."} for part in storage_path.split("/"))
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Evidence object is not owned by this customer.")
 
     # 2. Enforce Evidence Quantity Limits per Claim
-    existing_evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{payload.claim_id}"})
+    existing_evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
     existing_evidence = existing_evidence or []
 
     category_counts = {}
@@ -150,18 +163,10 @@ async def catalog_evidence(
             detail={"message": f"Only one upload is allowed for {category_val}."}
         )
 
-    # 3. Derive storage_path to satisfy NOT NULL database constraint
-    storage_path = getattr(payload, "storage_path", None)
-    if not storage_path and payload.file_url:
-        clean_url = payload.file_url.split("?")[0]
-        if "/storage/v1/object/public/" in clean_url:
-            storage_path = clean_url.split("/storage/v1/object/public/")[-1]
-        else:
-            storage_path = f"evidence/{payload.claim_id}/{clean_url.split('/')[-1]}"
-
+    # Store the canonical object path from the authorized public storage URL.
     evidence_data = {
-        "claim_id": payload.claim_id,
-        "file_url": payload.file_url,
+        "claim_id": real_claim_id,
+        "file_url": supplied_url._replace(query="", fragment="").geturl(),
         "storage_path": storage_path,  # Satisfies NOT NULL constraint on claim_evidence.storage_path
         "file_type": payload.file_type,
         "category": category_val
@@ -172,11 +177,12 @@ async def catalog_evidence(
 
         # Trigger AI assessment in background when a damage photo is uploaded
         if category_val == "photo":
-            background_tasks.add_task(trigger_ai_assessment, claim_id=payload.claim_id)
+            background_tasks.add_task(trigger_ai_assessment, claim_id=real_claim_id)
 
         return {"message": "Evidence cataloged successfully", "evidence": created}
     except Exception as e:
+        request_id = log_route_exception(logger, request, "storage.evidence_register_failed", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "Failed to register evidence entry", "error": str(e)}
+            detail={"message": "Failed to register evidence entry", "error": f"Request ID: {request_id}"}
         )

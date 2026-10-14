@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Query
+import logging
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Query, Request
 from typing import Dict, Any, List, Optional
 
 from app.core.config import settings
+from app.core.authorization import require_agent_claim_access, user_id
+from app.core.request_logging import log_route_exception
 from app.core.security import get_current_user, require_roles, create_claim_action_token
 from app.db.supabase import db
 from app.schemas.claim import (
@@ -18,6 +21,7 @@ from app.services.email import (
 )
 
 router = APIRouter(prefix="/agent", tags=["Agent Adjudication Workbench"])
+logger = logging.getLogger("claimpilot.agent")
 
 
 async def _get_claim_by_id_or_number(claim_id: str) -> Optional[Dict[str, Any]]:
@@ -39,6 +43,8 @@ async def get_agent_claims_queue(
     user: Dict[str, Any] = Depends(require_roles(["agent", "admin"]))
 ):
     params: Dict[str, str] = {"order": "created_at.desc", "limit": str(limit)}
+    if user.get("role") == "agent":
+        params["assigned_agent_id"] = f"eq.{user_id(user)}"
     if status_filter:
         params["status"] = f"eq.{status_filter}"
     if risk_filter:
@@ -61,6 +67,8 @@ async def get_agent_claim_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"message": "Claim not found in adjudication database", "claim_id": claim_id}
         )
+
+    require_agent_claim_access(claim, user)
 
     # Use resolved UUID primary key for secondary table joins
     real_claim_id = claim["id"]
@@ -87,6 +95,7 @@ async def process_agent_claim_action(
     claim_id: str,
     payload: AgentActionRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     user: Dict[str, Any] = Depends(require_roles(["agent", "admin"]))
 ):
     claim = await _get_claim_by_id_or_number(claim_id)
@@ -95,6 +104,8 @@ async def process_agent_claim_action(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"message": "Target claim not found", "claim_id": claim_id}
         )
+
+    require_agent_claim_access(claim, user)
 
     real_claim_id = claim["id"]
     current_status = claim.get("status")
@@ -138,12 +149,17 @@ async def process_agent_claim_action(
         try:
             await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
         except Exception as e:
+            request_id = log_route_exception(logger, request, "agent.claim.approve_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "Failed to update claim to approved status", "error": str(e)}
+                detail={"message": "Failed to update claim to approved status", "error": f"Request ID: {request_id}"}
             )
 
-        settlement_token = create_claim_action_token(claim_id=real_claim_id, action="settlement_confirmation", expires_hours=48)
+        settlement_token = create_claim_action_token(
+            claim_id=real_claim_id,
+            action="settlement_confirmation",
+            expires_minutes=48 * 60,
+        )
 
         background_tasks.add_task(
             send_agent_approval_email,
@@ -189,9 +205,10 @@ async def process_agent_claim_action(
         try:
             await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
         except Exception as e:
+            request_id = log_route_exception(logger, request, "agent.claim.reject_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "Failed to update claim rejection in database", "error": str(e)}
+                detail={"message": "Failed to update claim rejection in database", "error": f"Request ID: {request_id}"}
             )
 
         background_tasks.add_task(
@@ -248,12 +265,17 @@ async def process_agent_claim_action(
         try:
             await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
         except Exception as e:
+            request_id = log_route_exception(logger, request, "agent.claim.notes_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "Failed to update claim notes in database", "error": str(e)}
+                detail={"message": "Failed to update claim notes in database", "error": f"Request ID: {request_id}"}
             )
 
-        upload_magic_token = create_claim_action_token(claim_id=real_claim_id, action="evidence_reupload", expires_hours=72)
+        upload_magic_token = create_claim_action_token(
+            claim_id=real_claim_id,
+            action="evidence_reupload",
+            expires_minutes=72 * 60,
+        )
 
         background_tasks.add_task(
             send_request_info_email,

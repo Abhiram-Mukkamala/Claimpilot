@@ -141,6 +141,7 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
     asyncio.run(auth_module.login_user(
         {"email": "login@example.invalid", "password": canary_password},
         BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
     ))
     registration = UserRegisterRequest(
         full_name="Canary User",
@@ -149,7 +150,7 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
         dob=date(2000, 1, 1),
         password=canary_password,
     )
-    asyncio.run(auth_module.register_user(registration))
+    asyncio.run(auth_module.register_user(registration, SimpleNamespace(state=SimpleNamespace())))
 
     captured = capsys.readouterr()
     output_and_logs = captured.out + captured.err + caplog.text
@@ -158,15 +159,21 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
     assert "event=auth.register" in caplog.text
 
 
-def test_development_sms_uses_fixed_code_without_generating_random_code(monkeypatch):
+@pytest.mark.parametrize("environment", ["development", "test"])
+@pytest.mark.parametrize("channel", ["email", "sms"])
+def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, environment, channel):
     from app.schemas.claim import OtpChannel, OtpSendRequest
 
-    auth_otp = _load_auth_otp_module(monkeypatch, "development", "184205")
+    auth_otp = _load_auth_otp_module(monkeypatch, environment, "184205")
     inserted = []
 
     class FakeDatabase:
-        async def select(self, *_args, **_kwargs):
-            return {"id": "user-123"}
+        async def select(self, table, *_args, **_kwargs):
+            if table == "profiles":
+                return {"id": "user-123"}
+            if table == "otp_verifications":
+                return []
+            raise AssertionError(f"Unexpected table {table}")
 
         async def insert(self, table, data):
             assert table == "otp_verifications"
@@ -176,11 +183,15 @@ def test_development_sms_uses_fixed_code_without_generating_random_code(monkeypa
     monkeypatch.setattr(auth_otp.random, "randint", lambda *_args: pytest.fail("random OTP generated"))
     background_tasks = BackgroundTasks()
     result = asyncio.run(auth_otp.send_otp(
-        OtpSendRequest(identifier="+15555550123", channel=OtpChannel.sms),
+        OtpSendRequest(
+            identifier="customer@example.invalid" if channel == "email" else "+15555550123",
+            channel=OtpChannel(channel),
+        ),
         background_tasks,
     ))
 
-    assert result.channel == "sms"
+    assert result.channel == channel
+    assert not hasattr(result, "otp_code")
     assert inserted[0]["otp_code"] == "184205"
     assert background_tasks.tasks[0].args[1] == "184205"
 

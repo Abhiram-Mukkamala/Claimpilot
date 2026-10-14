@@ -1,10 +1,13 @@
+import logging
 import random
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from typing import Dict, Any, List
 
 from app.core.config import settings
+from app.core.authorization import require_customer_claim_owner
+from app.core.request_logging import log_route_exception
 from app.core.security import get_current_user
 from app.db.supabase import db
 from app.schemas.claim import (
@@ -16,6 +19,7 @@ from app.schemas.claim import (
 )
 
 router = APIRouter(prefix="/claims", tags=["Customer Claims Portal"])
+logger = logging.getLogger("claimpilot.claims")
 
 
 def generate_claim_number() -> str:
@@ -32,10 +36,12 @@ def generate_claim_number() -> str:
 )
 async def create_claim(
     payload: ClaimCreate,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    print("=" * 60)
-    print("[CLAIM CREATE] Received new claim creation request.")
+    if user.get("role") != "customer":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only customers can create claims.")
+    logger.info("event=claim.create.started")
     user_id = user.get("user_id") or user.get("id") or user.get("sub")
     claim_id = str(uuid.uuid4())
     claim_number = generate_claim_number()
@@ -49,10 +55,8 @@ async def create_claim(
             detail={"success": False, "message": "Policy number is required to file a claim."}
         )
     target_policy_number = target_policy_number.strip().upper()
-    print(f"[CLAIM CREATE] Incoming policy_number: '{target_policy_number}'")
 
     # 2. STEP 1: Query 'agent_policies' FIRST (Source of Truth for Agent-Policy Mapping)
-    print(f"[CLAIM CREATE] Step 1: Searching 'agent_policies' for: '{target_policy_number}'")
     agent_mapping = await db.select(
         "agent_policies",
         params={"policy_number": f"eq.{target_policy_number}"},
@@ -63,10 +67,10 @@ async def create_claim(
 
     if agent_mapping and agent_mapping.get("agent_id"):
         assigned_agent_id = agent_mapping.get("agent_id")
-        print(f"[CLAIM CREATE] Policy mapped in 'agent_policies'. Assigned agent_id: {assigned_agent_id}")
+        logger.info("event=claim.create.policy_mapping_found")
     else:
         # Fallback: Check if policy already exists in 'policies' table
-        print(f"[CLAIM CREATE] Policy not found in 'agent_policies'. Checking 'policies' table...")
+        logger.info("event=claim.create.policy_mapping_fallback")
         existing_policy = await db.select(
             "policies",
             params={"policy_number": f"eq.{target_policy_number}"},
@@ -74,7 +78,7 @@ async def create_claim(
         )
         if existing_policy:
             assigned_agent_id = existing_policy.get("assigned_agent_id") or existing_policy.get("agent_id")
-            print(f"[CLAIM CREATE] Found existing agent_id in 'policies': {assigned_agent_id}")
+            logger.info("event=claim.create.policy_found")
 
     if not assigned_agent_id:
         raise HTTPException(
@@ -86,7 +90,6 @@ async def create_claim(
         )
 
     # 3. STEP 2: Verify assigned agent profile exists in public.profiles
-    print(f"[CLAIM CREATE] Step 2: Verifying agent_id '{assigned_agent_id}' in 'profiles'...")
     agent_profile = await db.select("profiles", params={"id": f"eq.{assigned_agent_id}"}, single=True)
     if not agent_profile:
         raise HTTPException(
@@ -96,7 +99,7 @@ async def create_claim(
                 "message": f"Assigned agent for policy '{target_policy_number}' was not found in profiles."
             }
         )
-    print(f"[CLAIM CREATE] SUCCESS: Verified agent profile '{agent_profile.get('full_name')}' (ID: {assigned_agent_id})")
+    logger.info("event=claim.create.agent_profile_verified")
 
     # 4. STEP 3: Create or update row in public.policies on-the-fly
     policy_record = await db.select(
@@ -106,7 +109,7 @@ async def create_claim(
     )
 
     if not policy_record:
-        print(f"[CLAIM CREATE] Step 3: Creating new row in 'policies' table for '{target_policy_number}'...")
+        logger.info("event=claim.create.policy_record_create_started")
         new_policy_dict = {
             "id": str(uuid.uuid4()),
             "policy_number": target_policy_number,
@@ -118,18 +121,18 @@ async def create_claim(
 
         try:
             policy_record = await db.insert("policies", new_policy_dict)
-            print(f"[CLAIM CREATE] SUCCESS: Created policy row.")
+            logger.info("event=claim.create.policy_record_created")
         except Exception as e:
-            print(f"[CLAIM CREATE] ERROR: Failed to create policy record: {str(e)}")
+            request_id = log_route_exception(logger, request, "claim.create.policy_record_create_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"success": False, "message": "Failed to create policy record in database", "error": str(e)}
+                detail={"success": False, "message": "Failed to create policy record in database", "error": f"Request ID: {request_id}"}
             )
     else:
         # Keep assigned_agent_id in sync if it differed
         current_agent = policy_record.get("assigned_agent_id") or policy_record.get("agent_id")
         if current_agent != assigned_agent_id:
-            print(f"[CLAIM CREATE] Step 3: Updating 'policies' table to match verified agent_id...")
+            logger.info("event=claim.create.policy_agent_sync_started")
             try:
                 await db.update(
                     "policies",
@@ -137,7 +140,10 @@ async def create_claim(
                     data={"assigned_agent_id": assigned_agent_id}
                 )
             except Exception as sync_err:
-                print(f"[CLAIM CREATE] WARN: Could not update policy agent_id: {str(sync_err)}")
+                logger.warning(
+                    "event=claim.create.policy_agent_sync_failed error_type=%s",
+                    type(sync_err).__name__,
+                )
 
     # 5. STEP 4: Construct and save claim record
     claim_dict = {
@@ -165,17 +171,15 @@ async def create_claim(
     }
 
     try:
-        print(f"[CLAIM CREATE] Inserting claim record into database (Claim Number: {claim_number})...")
+        logger.info("event=claim.create.record_insert_started")
         created = await db.insert("claims", claim_dict)
-        print("[CLAIM CREATE] SUCCESS: Claim record successfully saved.")
+        logger.info("event=claim.create.record_inserted")
     except Exception as e:
-        print(f"[CLAIM CREATE] ERROR: Failed to insert claim into database: {str(e)}")
+        request_id = log_route_exception(logger, request, "claim.create.record_insert_failed", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "message": "Failed to create claim record in database", "error": str(e)}
+            detail={"success": False, "message": "Failed to create claim record in database", "error": f"Request ID: {request_id}"}
         )
-
-    print("=" * 60)
 
     return {
         "success": True,
@@ -192,6 +196,8 @@ async def create_claim(
     summary="List all claims belonging to the authenticated customer"
 )
 async def list_customer_claims(user: Dict[str, Any] = Depends(get_current_user)):
+    if user.get("role") != "customer":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only customers can list customer claims.")
     user_id = user.get("user_id") or user.get("id") or user.get("sub")
     claims = await db.select("claims", params={"user_id": f"eq.{user_id}", "order": "created_at.desc"})
     return {"claims": claims or []}
@@ -228,26 +234,7 @@ async def get_customer_claim_detail(
             detail={"message": "Claim not found", "claim_id": claim_id}
         )
 
-    # 2. Extract user IDs safely
-    claim_user_id = claim.get("user_id") or claim.get("customer_id")
-    claim_assigned_agent_id = claim.get("assigned_agent_id")
-    current_user_id = user.get("user_id") or user.get("id") or user.get("sub")
-    user_role = user.get("role", "customer")
-
-    # 3. Authorization check
-    is_owner = claim_user_id and str(claim_user_id) == str(current_user_id)
-    is_agent = claim_assigned_agent_id and str(claim_assigned_agent_id) == str(current_user_id)
-    is_staff = user_role in ["agent", "admin"]
-
-    if not (is_owner or is_agent or is_staff):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "message": "You are not authorized to view this claim.", 
-                "c": str(claim_user_id), 
-                "u": str(current_user_id)
-            }
-        )
+    require_customer_claim_owner(claim, user)
 
     # Resolve real claim UUID for child queries
     real_claim_id = claim.get("id")
@@ -270,7 +257,21 @@ async def get_claim_ai_analysis(
     claim_id: str,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{claim_id}"}, single=True)
+    claim = None
+    try:
+        uuid.UUID(claim_id)
+        claim = await db.select("claims", params={"id": f"eq.{claim_id}"}, single=True)
+    except ValueError:
+        claim = await db.select("claims", params={"claim_number": f"eq.{claim_id}"}, single=True)
+    if not claim:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Claim not found", "claim_id": claim_id},
+        )
+    require_customer_claim_owner(claim, user)
+
+    real_claim_id = claim.get("id")
+    ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{real_claim_id}"}, single=True)
     if not ai_analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -287,6 +288,7 @@ async def get_claim_ai_analysis(
 )
 async def process_customer_settlement_decision(
     payload: CustomerSettlementDecisionRequest,
+    request: Request,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     claim_id = payload.claim_id
@@ -297,15 +299,8 @@ async def process_customer_settlement_decision(
             detail={"message": "Claim not found", "claim_id": claim_id}
         )
 
-    claim_user_id = claim.get("user_id") or claim.get("customer_id")
     current_user_id = user.get("user_id") or user.get("id") or user.get("sub")
-    user_role = user.get("role", "customer")
-
-    if str(claim_user_id) != str(current_user_id) and user_role not in ["agent", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"message": "You are not authorized to submit settlement decisions for this claim."}
-        )
+    require_customer_claim_owner(claim, user)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -323,9 +318,10 @@ async def process_customer_settlement_decision(
                 }
             )
         except Exception as e:
+            request_id = log_route_exception(logger, request, "claim.settlement.accept_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "Failed to update claim status to settlement_accepted", "error": str(e)}
+                detail={"message": "Failed to update claim status to settlement_accepted", "error": f"Request ID: {request_id}"}
             )
 
         return {
@@ -368,9 +364,10 @@ async def process_customer_settlement_decision(
                 }
             )
         except Exception as e:
+            request_id = log_route_exception(logger, request, "claim.settlement.dispute_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "Failed to flag claim as disputed", "error": str(e)}
+                detail={"message": "Failed to flag claim as disputed", "error": f"Request ID: {request_id}"}
             )
 
         return {

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import Dict, Any
 import logging
 from app.db.supabase import db, supabase_public, supabase_admin
 from app.core.security import create_access_token, get_current_user
+from app.core.request_logging import log_route_exception
 from app.schemas.claim import UserRegisterRequest, UserProfileResponse, OtpSendRequest, OtpChannel
 from app.api.v1.auth_otp import send_otp
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication & Profiles"])
 
 
 @router.post("/login", response_model=Dict[str, Any])
-async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks):
+async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks, request: Request):
     """
     Step 1 of 2FA Login:
     Validate email + password against Supabase Auth.
@@ -43,9 +44,10 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
     except Exception as auth_err:
         error_msg = str(auth_err)
         logger.warning("event=auth.login outcome=failure")
+        request_id = log_route_exception(logger, request, "auth.login.failed", auth_err)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Invalid email or password", "error": error_msg}
+            detail={"message": "Invalid email or password", "error": f"Request ID: {request_id}"}
         )
 
     # 2. Password is valid -> Dispatch 6-digit OTP code to claimant's email
@@ -63,7 +65,7 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
 
 
 @router.post("/register", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
-async def register_user(payload: UserRegisterRequest):
+async def register_user(payload: UserRegisterRequest, request: Request):
     email = payload.email.lower().strip()
 
     # ==================== REGISTER DEBUGGER ====================
@@ -92,17 +94,17 @@ async def register_user(payload: UserRegisterRequest):
         logger.info("event=auth.register outcome=auth_user_created user_id=%s", user_id)
     except Exception as auth_err:
         error_msg = str(auth_err)
-        logger.error("event=auth.register outcome=auth_user_creation_failed")
+        request_id = log_route_exception(logger, request, "auth.register.auth_user_creation_failed", auth_err)
         
         if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={"message": "User already registered in authentication system.", "error": error_msg}
+                detail={"message": "User already registered in authentication system.", "error": f"Request ID: {request_id}"}
             )
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"message": f"Auth creation failed: {error_msg}", "error": error_msg}
+            detail={"message": "Auth creation failed.", "error": f"Request ID: {request_id}"}
         )
 
     # 3. Construct profile payload matching auth.users(id)
@@ -122,7 +124,7 @@ async def register_user(payload: UserRegisterRequest):
     try:
         supabase_admin.table("profiles").insert(profile_data).execute()
     except Exception as db_err:
-        logger.error("event=auth.register outcome=profile_insert_failed user_id=%s", user_id)
+        request_id = log_route_exception(logger, request, "auth.register.profile_insert_failed", db_err)
         try:
             supabase_admin.auth.admin.delete_user(user_id)
         except Exception as delete_err:
@@ -130,7 +132,7 @@ async def register_user(payload: UserRegisterRequest):
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "Failed to create user profile record", "error": str(db_err)}
+            detail={"message": "Failed to create user profile record", "error": f"Request ID: {request_id}"}
         )
 
     # 5. Issue JWT access token

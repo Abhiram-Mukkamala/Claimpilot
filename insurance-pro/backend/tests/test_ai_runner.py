@@ -6,7 +6,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from PIL import Image, ImageDraw
@@ -364,12 +364,16 @@ def test_evidence_catalog_failure_and_retry_do_not_duplicate_analysis(runtime, m
         return await storage.catalog_evidence(
             ClaimEvidenceCreate(
                 claim_id=runtime.claim_id,
-                file_url=f"https://unit-test.invalid/{file_name}",
-                storage_path=f"evidence/{file_name}",
+                file_url=(
+                    "https://unit-test.invalid/storage/v1/object/public/claim-evidence/"
+                    f"evidence/photo/user-123/{file_name}"
+                ),
+                storage_path=f"evidence/photo/user-123/{file_name}",
                 file_type="image/png",
                 category="photo",
             ),
             tasks,
+            SimpleNamespace(state=SimpleNamespace()),
             user,
         )
 

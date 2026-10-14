@@ -31,15 +31,33 @@ CUSTOMER_PASSWORD = os.getenv("SMOKE_CUSTOMER_PASSWORD")
 AGENT_EMAIL = os.getenv("SMOKE_AGENT_EMAIL")
 AGENT_PASSWORD = os.getenv("SMOKE_AGENT_PASSWORD")
 IMAGE_DIR = os.getenv("SMOKE_IMAGE_DIR")
+SMOKE_OTP_CODE = os.getenv("SMOKE_OTP_CODE")
+CUSTOMER_OTP_CODE = os.getenv("SMOKE_CUSTOMER_OTP_CODE") or SMOKE_OTP_CODE
+AGENT_OTP_CODE = os.getenv("SMOKE_AGENT_OTP_CODE") or SMOKE_OTP_CODE
 POLICY_NUMBER = "DEMO-POL-001"
 ANALYSIS_TIMEOUT_SECONDS = 120
+
+
+def _configured_sensitive_values() -> tuple[str, ...]:
+    return tuple(
+        value
+        for value in (
+            CUSTOMER_EMAIL,
+            CUSTOMER_PASSWORD,
+            AGENT_EMAIL,
+            AGENT_PASSWORD,
+            CUSTOMER_OTP_CODE,
+            AGENT_OTP_CODE,
+        )
+        if value
+    )
 
 
 def redact(value: Any) -> Any:
     """Redact sensitive values while preserving response structure."""
     if isinstance(value, dict):
         sensitive = re.compile(
-            r"token|password|email|phone|name|signed.?url|storage.?path|file.?path|authorization",
+            r"token|password|email|phone|name|otp|verification.?code|identifier|url|storage.?path|file.?path|authorization",
             re.IGNORECASE,
         )
         return {
@@ -55,6 +73,8 @@ def redact(value: Any) -> Any:
         value = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "<REDACTED:email>", value)
         value = re.sub(r"(?i)(bearer\s+|access_token[\"']?\s*[:=]\s*[\"']?)[^,\s\"'}]+", r"\1<REDACTED:token>", value)
         value = re.sub(r"(?i)(password[\"']?\s*[:=]\s*[\"']?)[^,\s\"'}]+", r"\1<REDACTED:password>", value)
+        for sensitive_value in _configured_sensitive_values():
+            value = value.replace(sensitive_value, "[redacted]")
         return value
     return value
 
@@ -87,7 +107,7 @@ def request_ok(name: str, response: httpx.Response, expected: set[int]) -> bool:
     )
 
 
-def login(client: httpx.Client, email: str, password: str, role: str) -> str | None:
+def login(client: httpx.Client, email: str, password: str, otp_code: str | None, role: str) -> str | None:
     response = client.post(
         f"{BASE_URL}/auth/login",
         json={"email": email, "password": password},
@@ -98,13 +118,19 @@ def login(client: httpx.Client, email: str, password: str, role: str) -> str | N
     data = response.json()
     token = data.get("access_token")
     if data.get("requires_otp"):
-        check(
-            f"{role} login",
-            False,
-            response=response,
-            detail="OTP required; no OTP environment variable is permitted by this smoke test",
+        if not otp_code:
+            check(f"{role} OTP verification", False, response=response, detail="OTP code was not configured")
+            return None
+        verification = client.post(
+            f"{BASE_URL}/auth/otp/verify",
+            json={"identifier": email, "otp_code": otp_code, "channel": "email"},
         )
-        return None
+        if verification.status_code not in {200, 201}:
+            check(f"{role} OTP verification", False, response=verification)
+            return None
+        token = verification.json().get("access_token")
+        check(f"{role} OTP verification", bool(token), response=verification if not token else None)
+        return token
     check(f"{role} login", bool(token), response=response if not token else None)
     return token
 
@@ -249,6 +275,9 @@ def main() -> int:
     if missing:
         print(f"[FAIL] Missing required environment variable(s): {', '.join(missing)}")
         return 1
+    if not CUSTOMER_OTP_CODE or not AGENT_OTP_CODE:
+        print("[FAIL] Missing required environment variable(s): SMOKE_OTP_CODE or role-specific smoke OTP codes")
+        return 1
 
     files = image_files()
     if not files:
@@ -257,7 +286,7 @@ def main() -> int:
 
     results: list[bool] = []
     with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-        customer_token = login(client, CUSTOMER_EMAIL or "", CUSTOMER_PASSWORD or "", "Customer")
+        customer_token = login(client, CUSTOMER_EMAIL or "", CUSTOMER_PASSWORD or "", CUSTOMER_OTP_CODE, "Customer")
         if not customer_token:
             return 1
         customer_headers = {"Authorization": f"Bearer {customer_token}"}
@@ -306,7 +335,7 @@ def main() -> int:
             )
         )
 
-        agent_token = login(client, AGENT_EMAIL or "", AGENT_PASSWORD or "", "Agent")
+        agent_token = login(client, AGENT_EMAIL or "", AGENT_PASSWORD or "", AGENT_OTP_CODE, "Agent")
         if not agent_token:
             return 1
         agent_headers = {"Authorization": f"Bearer {agent_token}"}
