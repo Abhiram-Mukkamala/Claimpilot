@@ -159,6 +159,54 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
     assert "event=auth.register" in caplog.text
 
 
+def test_registration_ignores_client_supplied_privileged_role():
+    from app.schemas.claim import UserRegisterRequest
+
+    auth_module = _load_auth_module()
+    created_auth_payloads = []
+    inserted_profiles = []
+    issued_tokens = []
+
+    class FakeAuthAdmin:
+        def create_user(self, payload):
+            created_auth_payloads.append(payload)
+            return SimpleNamespace(user=SimpleNamespace(id="registered-user-id"))
+
+    class FakeAuth:
+        admin = FakeAuthAdmin()
+
+    class FakeTable:
+        def insert(self, payload):
+            inserted_profiles.append(payload)
+            return self
+
+        def execute(self):
+            return None
+
+    class FakeDatabase:
+        async def select(self, *_args, **_kwargs):
+            return None
+
+    auth_module.db = FakeDatabase()
+    auth_module.supabase_admin = SimpleNamespace(auth=FakeAuth(), table=lambda _name: FakeTable())
+    auth_module.create_access_token = lambda payload: issued_tokens.append(payload) or "test-access-token"
+    registration = UserRegisterRequest(
+        full_name="Test Policyholder",
+        email="customer@example.invalid",
+        phone_number="+15555550123",
+        dob=date(2000, 1, 1),
+        password="safe-test-password",
+        role="admin",
+    )
+
+    result = asyncio.run(auth_module.register_user(registration, SimpleNamespace(state=SimpleNamespace())))
+
+    assert created_auth_payloads[0]["user_metadata"]["role"] == "customer"
+    assert inserted_profiles[0]["role"] == "customer"
+    assert issued_tokens[0]["role"] == "customer"
+    assert result["user"]["role"] == "customer"
+
+
 @pytest.mark.parametrize("environment", ["development", "test"])
 @pytest.mark.parametrize("channel", ["email", "sms"])
 def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, environment, channel):

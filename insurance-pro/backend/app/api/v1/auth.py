@@ -87,7 +87,7 @@ async def register_user(payload: UserRegisterRequest, request: Request):
             "email_confirm": True,
             "user_metadata": {
                 "full_name": payload.full_name,
-                "role": payload.role.value if hasattr(payload.role, "value") else str(payload.role)
+                "role": "customer"
             }
         })
         user_id = auth_res.user.id
@@ -108,7 +108,8 @@ async def register_user(payload: UserRegisterRequest, request: Request):
         )
 
     # 3. Construct profile payload matching auth.users(id)
-    role_value = payload.role.value if hasattr(payload.role, "value") else str(payload.role)
+    # Public registration must never grant agent/admin privileges from client input.
+    role_value = "customer"
     dob_value = payload.dob.isoformat() if hasattr(payload.dob, "isoformat") else str(payload.dob)
 
     profile_data = {
