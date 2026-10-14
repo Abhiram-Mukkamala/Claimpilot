@@ -2,7 +2,7 @@
 # start_demo.ps1 - One-command local demo launcher for claimbot AI
 # Usage: .\scripts\start_demo.ps1
 
-Set-ErrorActionPreference -ErrorAction Stop
+$ErrorActionPreference = 'Stop'
 
 # ============================================================
 # VALIDATION: Check prerequisites
