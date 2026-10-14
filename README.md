@@ -1,7 +1,5 @@
 # ClaimPilot AI — Motor Insurance Claims Platform
 
-**Note:** The following statements must be updated once `feat/fraud-port` merges: pHash fraud engine implementation status, Narrative-severity check implementation status.
-
 **ClaimPilot** is an AI-powered motor insurance claims management system that connects policyholders with insurance adjusters to streamline claim filing, AI damage detection, and settlement approval. Built for a hackathon demo on Oct 24, 2026.
 
 ---
@@ -125,7 +123,7 @@ npm run dev
 
 ## Known Limitations
 
-1. **pHash Fraud Engine** — Not yet implemented. The `fraud_score` field in claims uses a simple placeholder calculation (12 if < 5 damages, else 45) based on damage count, not actual perceptual hashing.
+1. **pHash Fraud Engine** — Implemented with cross-claim image similarity detection using perceptual hashing. Duplicate and near-duplicate images are flagged based on a configurable distance threshold. The `fraud_score` combines pHash duplicate detection, narrative-severity consistency checks, and claimant history analysis. Tested with automated unit tests.
 
 2. **Narrative-Severity Check** — LLM-based text classification of claim descriptions is planned but not yet built.
 

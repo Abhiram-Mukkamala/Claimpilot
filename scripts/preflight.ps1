@@ -3,7 +3,7 @@
 # Usage: .\scripts\preflight.ps1
 # Exits with non-zero code on any FAIL
 
-Set-ErrorActionPreference -ErrorAction SilentlyContinue
+$ErrorActionPreference = "Stop"
 
 Write-Host "=== Preflight Checklist ==="
 Write-Host ""
@@ -132,16 +132,16 @@ if (-not (Test-Path $weightsDir)) {
     Write-Host "FAIL: Directory $weightsDir does not exist"
     $allPassed = $false
 } else {
-    # Look for weight files (common extensions)
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
+    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
+    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
     
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
+    if ($yoloWeightFiles.Count -eq 0) {
+        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
         $allPassed = $false
     } else {
         $allNonEmpty = $true
         $emptyFiles = @()
-        foreach ($file in $weightFiles) {
+        foreach ($file in $yoloWeightFiles) {
             if ($file.Length -eq 0) {
                 $allNonEmpty = $false
                 $emptyFiles += $file.Name
@@ -151,16 +151,16 @@ if (-not (Test-Path $weightsDir)) {
             Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
             $allPassed = $false
         } else {
-            Write-Host "PASS (found $($weightFiles.Count) weight files)"
+            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
         }
     }
 }
 
 # ============================================================
-# CHECK 6: Ports 8000 and 5173 are free
+# CHECK 6: Ports 8000 and 4173 are free
 # ============================================================
 
-$ports = @(8000, 5173)
+$ports = @(8000, 4173)
 foreach ($port in $ports) {
     Write-Host -NoNewline "(6) Port $port is free... "
     try {

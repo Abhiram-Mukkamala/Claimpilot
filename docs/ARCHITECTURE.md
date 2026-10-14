@@ -1,6 +1,5 @@
 # Architecture — ClaimPilot AI
 
-**Note:** The following statements must be updated once `feat/fraud-port` merges: pHash fraud engine implementation status, Narrative-severity check implementation status.
 
 ## Components (what exists today)
 
@@ -10,7 +9,7 @@
 | **Backend** | FastAPI (insurance-pro/backend) | REST API with JWT auth, OTP verification (email/SMS), claim CRUD, AI assessment triggers. |
 | **Auth & DB** | Supabase (PostgreSQL + GoTrue + Storage) | Supabase Auth for user management, Row-Level Security, storage bucket `claim-evidence` for claim evidence. |
 | **AI: Damage Detection** | YOLOv11m + RT-DETR (insurance-pro/backend/app/models/weights/) | YOLOv11m (39 MB) and RT-DETR (64 MB) weight files for vehicle damage detection. Inference runs as background task via `ai_runner.py`. |
-| **Fraud Engine** | pHash similarity cross-claim check | Planned — no implementation exists yet. The `fraud_score` field in claims is currently a placeholder calculation (12 if < 5 damages, else 45) based on damage count. |
+| **Fraud Engine** | pHash similarity cross-claim check | Implemented with perceptual hashing for duplicate image detection. The `fraud_score` combines pHash matches, narrative-severity consistency, and claimant history. |
 | **Narrative-Severity Check** | LLM-based text classification | Planned — no code or model exists yet. |
 | **SMS Provider** | Fast2SMS (India) / Twilio | Both supported via config. Twilio uses `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`. Fast2SMS uses `FAST2SMS_API_KEY`. Falls back to console logging if neither configured. |
 | **Email Provider** | SendGrid API + SMTP fallback | SendGrid via `SENDGRID_API_KEY`. SMTP via `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`. Falls back to console logging if neither configured. |
@@ -20,7 +19,7 @@
 1. **Customer uploads** 2–3 damage photos via the React frontend → files posted to `POST /api/v1/claims` with multipart/form-data.
 2. **Backend creates** a Claim row in Supabase PostgreSQL (table: `claims`), sets status to `pending_review`, and enqueues `trigger_ai_assessment()` as a FastAPI background task.
 3. **AI inference** (`app/services/ai_runner.py`) downloads photos from Supabase Storage, runs YOLOv11m and RT-DETR on each image → generates bounding boxes + confidence scores → stored as JSON in `claim_ai_analysis` table.
-4. **Fraud score calculation** (placeholder) computes a simple score based on damage count: 12 if < 5 damages, else 45. This is stored in the claims table as `fraud_score` and `risk_level`. pHash-based cross-claim similarity is planned but not implemented.
+4. **Fraud score calculation** uses pHash-based cross-claim image similarity detection, narrative-severity consistency checks, and claimant history analysis to compute a weighted score. Results are stored in the claims table as `fraud_score` and `risk_level`.
 5. **Narrative-severity check** (planned) — no implementation exists yet.
 6. **Agent reviews** the claim via the Agent Dashboard (`/agent/claims`) → sees AI results (bounding boxes, estimated costs), fraud_score, risk_level → clicks **Approve** or **Reject**.
 7. **Agent action** calls `POST /api/v1/agent/claims/{claim_id}/action` → updates claim status, sends email notification via SMTP (Resend), and optionally triggers SMS via Fast2SMS.
@@ -70,6 +69,6 @@ flowchart TD
 
 ## Planned / Not Yet Built
 
-- **pHash fraud engine** — perceptual hash similarity across claims to detect duplicate/fraudulent images; not yet implemented. Current `fraud_score` is a simple placeholder.
+
 - **Narrative-severity check** — LLM-based text classification of claim descriptions to auto-assign severity levels; no code or model exists yet.
 - **Containerized deployment** — Dockerfile exists for backend but no Docker Compose or Kubernetes manifests exist yet for full stack orchestration.

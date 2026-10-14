@@ -201,7 +201,7 @@ Write-Host "OK"
 # ============================================================
 
 Write-Host "Opening browser to frontend..."
-start "" "http://localhost:5173"
+start "" "http://localhost:4173"
 
 # ============================================================
 # STATUS: Print service status
@@ -210,7 +210,7 @@ start "" "http://localhost:5173"
 Write-Host ""
 Write-Host "=== Demo is running ==="
 Write-Host "Backend:  http://localhost:8000 (PID: $($backendProcess.Id))"
-Write-Host "Frontend: http://localhost:5173 (PID: $($frontendProcess.Id))"
+Write-Host "Frontend: http://localhost:4173 (PID: $($frontendProcess.Id))"
 Write-Host "PID file: $pidFile"
 Write-Host ""
 Write-Host "To stop: .\scripts\stop_demo.ps1"
