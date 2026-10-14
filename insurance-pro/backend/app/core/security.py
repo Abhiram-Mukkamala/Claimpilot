@@ -22,11 +22,12 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 CLAIM_ACTIONS = {"settlement_confirmation", "evidence_reupload"}
+MAX_CLAIM_ACTION_TOKEN_MINUTES = 72 * 60
 
 
 def create_claim_action_token(claim_id: str, action: str, expires_minutes: int = 30) -> str:
     """Create tamper-proof single-purpose token for magic links in emails."""
-    if action not in CLAIM_ACTIONS or not claim_id or not 1 <= expires_minutes <= 60:
+    if action not in CLAIM_ACTIONS or not claim_id or not 1 <= expires_minutes <= MAX_CLAIM_ACTION_TOKEN_MINUTES:
         raise ValueError("Invalid claim action token parameters")
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     payload = {

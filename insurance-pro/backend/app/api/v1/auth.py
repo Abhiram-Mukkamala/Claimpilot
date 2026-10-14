@@ -1,17 +1,18 @@
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import Dict, Any
 import logging
-from app.db.supabase import db, supabase_public, supabase_admin
-from app.core.security import create_access_token, get_current_user
-from app.schemas.claim import UserRegisterRequest, UserProfileResponse, OtpSendRequest, OtpChannel
-from app.api.v1.auth_otp import send_otp
+from app.db.supabase import db, supabase_admin
+from app.core.security import get_current_user
+from app.core.request_logging import log_route_exception
+from app.schemas.claim import UserRegisterRequest, OtpSendRequest, OtpChannel
+from app.api.v1.auth_otp import issue_otp
 
 logger = logging.getLogger("claimpilot.auth")
 router = APIRouter(prefix="/auth", tags=["Authentication & Profiles"])
 
 
 @router.post("/login", response_model=Dict[str, Any])
-async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks):
+async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks, request: Request):
     """
     Step 1 of 2FA Login:
     Validate email + password against Supabase Auth.
@@ -20,16 +21,13 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
     email = (payload.get("email") or "").lower().strip()
     password = payload.get("password") or ""
 
-    # ==================== LOGIN DEBUGGER ====================
-    # =======================================================
-
     if not email or not password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": "Email and password are required"}
         )
 
-    # 1. Authenticate email & password against Supabase Auth using public client
+    # Validate the password before creating the login OTP challenge.
     try:
         auth_res = supabase_admin.auth.sign_in_with_password({
             "email": email,
@@ -41,17 +39,19 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
         logger.info("event=auth.login outcome=credentials_verified user_id=%s", supabase_user.id)
         
     except Exception as auth_err:
-        error_msg = str(auth_err)
         logger.warning("event=auth.login outcome=failure")
+        request_id = log_route_exception(logger, request, "auth.login.failed", auth_err)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"message": "Invalid email or password", "error": error_msg}
+            detail={"message": "Invalid email or password", "error": f"Request ID: {request_id}"}
         )
 
-    # 2. Password is valid -> Dispatch 6-digit OTP code to claimant's email
-    otp_response = await send_otp(
+    # The purpose- and user-bound OTP challenge is issued only after password auth.
+    otp_response = await issue_otp(
         payload=OtpSendRequest(identifier=email, channel=OtpChannel.email),
-        background_tasks=background_tasks
+        background_tasks=background_tasks,
+        purpose="login",
+        authenticated_user_id=str(supabase_user.id),
     )
 
     return {
@@ -62,90 +62,33 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks)
     }
 
 
-@router.post("/register", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
-async def register_user(payload: UserRegisterRequest):
+@router.post("/register", response_model=Dict[str, Any], status_code=status.HTTP_202_ACCEPTED)
+async def register_user(payload: UserRegisterRequest, background_tasks: BackgroundTasks, request: Request):
     email = payload.email.lower().strip()
-
-    # ==================== REGISTER DEBUGGER ====================
-    # ===========================================================
-
-    # 1. Check if profile already exists in public.profiles
-    existing = await db.select("profiles", params={"email": f"eq.{email}"}, single=True)
+    try:
+        existing = await db.select("profiles", params={"email": f"eq.{email}"}, single=True)
+    except Exception as db_err:
+        request_id = log_route_exception(logger, request, "auth.register.profile_lookup_failed", db_err)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"message": "Unable to start registration verification.", "error": f"Request ID: {request_id}"},
+        ) from db_err
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": "An account with this email address already exists.", "email": email}
         )
 
-    # 2. Attempt to create user in Supabase Auth (auth.users)
-    try:
-        auth_res = supabase_admin.auth.admin.create_user({
-            "email": email,
-            "password": payload.password,
-            "email_confirm": True,
-            "user_metadata": {
-                "full_name": payload.full_name,
-                "role": payload.role.value if hasattr(payload.role, "value") else str(payload.role)
-            }
-        })
-        user_id = auth_res.user.id
-        logger.info("event=auth.register outcome=auth_user_created user_id=%s", user_id)
-    except Exception as auth_err:
-        error_msg = str(auth_err)
-        logger.error("event=auth.register outcome=auth_user_creation_failed")
-        
-        if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"message": "User already registered in authentication system.", "error": error_msg}
-            )
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"message": f"Auth creation failed: {error_msg}", "error": error_msg}
-        )
-
-    # 3. Construct profile payload matching auth.users(id)
-    role_value = payload.role.value if hasattr(payload.role, "value") else str(payload.role)
-    dob_value = payload.dob.isoformat() if hasattr(payload.dob, "isoformat") else str(payload.dob)
-
-    profile_data = {
-        "id": user_id,
-        "full_name": payload.full_name,
-        "email": email,
-        "phone_number": payload.phone_number,
-        "dob": dob_value,
-        "role": role_value
-    }
-
-    # 4. Insert into public.profiles using admin privileges
-    try:
-        supabase_admin.table("profiles").insert(profile_data).execute()
-    except Exception as db_err:
-        logger.error("event=auth.register outcome=profile_insert_failed user_id=%s", user_id)
-        try:
-            supabase_admin.auth.admin.delete_user(user_id)
-        except Exception as delete_err:
-            logger.error("event=auth.register_cleanup outcome=failure user_id=%s", user_id)
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "Failed to create user profile record", "error": str(db_err)}
-        )
-
-    # 5. Issue JWT access token
-    token = create_access_token({
-        "sub": user_id,
-        "email": email,
-        "role": role_value,
-        "name": payload.full_name
-    })
-
+    otp_response = await issue_otp(
+        payload=OtpSendRequest(identifier=email, channel=OtpChannel.email),
+        background_tasks=background_tasks,
+        purpose="signup",
+    )
+    logger.info("event=auth.register outcome=verification_dispatched")
     return {
-        "message": "User registered successfully",
-        "access_token": token,
-        "token_type": "bearer",
-        "user": profile_data
+        "message": "Verification code sent. Complete verification to create the account.",
+        "requires_otp": True,
+        "otp_details": otp_response,
     }
 
 

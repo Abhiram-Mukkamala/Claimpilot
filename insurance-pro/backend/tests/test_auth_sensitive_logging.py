@@ -40,10 +40,10 @@ def _load_auth_module():
     fake_v1.__path__ = [str(BACKEND / "app" / "api" / "v1")]
     fake_otp_module = ModuleType("app.api.v1.auth_otp")
 
-    async def fake_send_otp(**_kwargs):
+    async def fake_issue_otp(**_kwargs):
         return {"message": "sent"}
 
-    fake_otp_module.send_otp = fake_send_otp
+    fake_otp_module.issue_otp = fake_issue_otp
     replacements = {
         "app.db.supabase": fake_db_module,
         "app.api": fake_api,
@@ -141,6 +141,7 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
     asyncio.run(auth_module.login_user(
         {"email": "login@example.invalid", "password": canary_password},
         BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
     ))
     registration = UserRegisterRequest(
         full_name="Canary User",
@@ -149,7 +150,11 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
         dob=date(2000, 1, 1),
         password=canary_password,
     )
-    asyncio.run(auth_module.register_user(registration))
+    asyncio.run(auth_module.register_user(
+        registration,
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
 
     captured = capsys.readouterr()
     output_and_logs = captured.out + captured.err + caplog.text
@@ -158,30 +163,119 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
     assert "event=auth.register" in caplog.text
 
 
-def test_development_sms_uses_fixed_code_without_generating_random_code(monkeypatch):
-    from app.schemas.claim import OtpChannel, OtpSendRequest
+def test_registration_ignores_client_supplied_privileged_role():
+    from fastapi import BackgroundTasks
+    from app.schemas.claim import UserRegisterRequest
 
-    auth_otp = _load_auth_otp_module(monkeypatch, "development", "184205")
-    inserted = []
+    auth_module = _load_auth_module()
 
     class FakeDatabase:
         async def select(self, *_args, **_kwargs):
-            return {"id": "user-123"}
+            return None
+
+    auth_module.db = FakeDatabase()
+    registration = UserRegisterRequest(
+        full_name="Test Policyholder",
+        email="customer@example.invalid",
+        phone_number="+15555550123",
+        dob=date(2000, 1, 1),
+        password="safe-test-password",
+        role="admin",
+    )
+
+    result = asyncio.run(auth_module.register_user(
+        registration,
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
+
+    assert result["requires_otp"] is True
+    assert "access_token" not in result
+
+
+def test_login_issues_user_bound_otp_challenge_only_after_password_auth(monkeypatch):
+    from fastapi import HTTPException
+
+    auth_module = _load_auth_module()
+    issued_challenges = []
+
+    async def issue_otp(**kwargs):
+        issued_challenges.append(kwargs)
+        return {"challenge_id": "challenge-id"}
+
+    class FakeAuth:
+        def sign_in_with_password(self, _payload):
+            return SimpleNamespace(user=SimpleNamespace(id="authenticated-user"))
+
+    monkeypatch.setattr(auth_module, "issue_otp", issue_otp)
+    auth_module.supabase_admin = SimpleNamespace(auth=FakeAuth())
+    result = asyncio.run(auth_module.login_user(
+        {"email": "customer@example.invalid", "password": "test-password"},
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
+
+    assert result["requires_otp"] is True
+    assert "access_token" not in result
+    assert issued_challenges[0]["purpose"] == "login"
+    assert issued_challenges[0]["authenticated_user_id"] == "authenticated-user"
+
+    issued_challenges.clear()
+
+    class FailedAuth:
+        def sign_in_with_password(self, _payload):
+            raise RuntimeError("credentials rejected")
+
+    auth_module.supabase_admin = SimpleNamespace(auth=FailedAuth())
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(auth_module.login_user(
+            {"email": "customer@example.invalid", "password": "wrong-password"},
+            BackgroundTasks(),
+            SimpleNamespace(state=SimpleNamespace()),
+        ))
+    assert error.value.status_code == 401
+    assert issued_challenges == []
+
+
+@pytest.mark.parametrize("environment", ["development", "test"])
+@pytest.mark.parametrize("channel", ["email", "sms"])
+def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, environment, channel):
+    from app.schemas.claim import OtpChannel, OtpSendRequest
+
+    auth_otp = _load_auth_otp_module(monkeypatch, environment, "184205")
+    inserted = []
+
+    class FakeDatabase:
+        async def select(self, table, *_args, **_kwargs):
+            if table == "profiles":
+                return {"id": "user-123"}
+            if table == "otp_verifications":
+                return []
+            raise AssertionError(f"Unexpected table {table}")
 
         async def insert(self, table, data):
             assert table == "otp_verifications"
             inserted.append(data)
 
     auth_otp.db = FakeDatabase()
-    monkeypatch.setattr(auth_otp.random, "randint", lambda *_args: pytest.fail("random OTP generated"))
     background_tasks = BackgroundTasks()
-    result = asyncio.run(auth_otp.send_otp(
-        OtpSendRequest(identifier="+15555550123", channel=OtpChannel.sms),
+    result = asyncio.run(auth_otp.issue_otp(
+        OtpSendRequest(
+            identifier="customer@example.invalid" if channel == "email" else "+15555550123",
+            channel=OtpChannel(channel),
+        ),
         background_tasks,
+        purpose="login",
+        authenticated_user_id="user-123",
     ))
 
-    assert result.channel == "sms"
-    assert inserted[0]["otp_code"] == "184205"
+    assert result.channel == channel
+    assert result.challenge_id
+    assert not hasattr(result, "otp_code")
+    assert "otp_code" not in result.model_dump()
+    assert inserted[0]["otp_code"] != "184205"
+    assert len(inserted[0]["otp_code"]) == 6
+    assert inserted[0]["otp_code"].isdigit()
     assert background_tasks.tasks[0].args[1] == "184205"
 
 

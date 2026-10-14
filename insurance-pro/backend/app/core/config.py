@@ -32,7 +32,8 @@ class Settings(BaseSettings):
 
     # Frontend URL (for email magic links and CORS)
     FRONTEND_URL: str = "http://localhost:5173"
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,*"
+    # Explicit frontend origins only; wildcard origins are never accepted.
+    ALLOWED_ORIGINS: str = "http://localhost:5173"
 
     # SendGrid Settings
     SENDGRID_API_KEY: Optional[str] = Field(default=None)
@@ -58,8 +59,13 @@ class Settings(BaseSettings):
     MAX_OTP_ATTEMPTS: int = 3
 
     @property
-    def cors_origin_list(self) -> List[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+    def allowed_origin_list(self) -> List[str]:
+        # Exclude wildcard entries even if accidentally supplied in configuration.
+        return [
+            origin.strip()
+            for origin in self.ALLOWED_ORIGINS.split(",")
+            if origin.strip() and origin.strip() != "*"
+        ]
 
     if USE_PYDANTIC_V2:
         model_config = SettingsConfigDict(

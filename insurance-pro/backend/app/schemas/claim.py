@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import re
 from enum import Enum
 import re
 from typing import Optional, List, Dict, Any
@@ -38,6 +39,24 @@ class EvidenceCategory(str, Enum):
     walkaround_video = "walkaround_video"
     dl_front = "dl_front"
     dl_back = "dl_back"
+
+
+class FraudRiskLevel(str, Enum):
+    low = "LOW RISK"
+    medium = "MEDIUM RISK"
+    high = "HIGH RISK"
+
+
+class FraudIndicator(BaseModel):
+    passed: bool
+    message: str
+
+
+class FraudAnalysis(BaseModel):
+    claimId: str
+    score: int = Field(..., ge=0, le=100)
+    riskLevel: FraudRiskLevel
+    indicators: List[FraudIndicator]
 
 
 class AgentActionType(str, Enum):
@@ -86,12 +105,14 @@ class OtpSendResponse(BaseModel):
     identifier: str
     channel: str
     expires_in_minutes: int
+    challenge_id: str
 
 
 class OtpVerifyRequest(BaseModel):
     identifier: str
-    otp_code: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    otp_code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit verification code")
     channel: OtpChannel = OtpChannel.email
+    challenge_id: Optional[str] = None
     metadata: Optional[UserMetadata] = None
 
 
@@ -156,6 +177,8 @@ class ClaimCreate(BaseModel):
         clean_v = v.strip().upper()
         if not clean_v:
             raise ValueError("Policy number cannot be blank.")
+        if not re.fullmatch(r"[A-Z0-9-]+", clean_v):
+            raise ValueError("Policy number contains unsupported characters.")
         return clean_v
 
     @field_validator("incident_date")
@@ -219,6 +242,7 @@ class ClaimAIAnalysisResponse(BaseModel):
     relative_deformation_z: Optional[Dict[str, Any]] = {}
     dsine_vectors: Optional[Dict[str, Any]] = {}
     fraud_flags: List[str] = []
+    fraud_analysis: Optional[FraudAnalysis] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -294,6 +318,6 @@ class PresignedUploadUrlRequest(BaseModel):
 class PresignedUploadUrlResponse(BaseModel):
     upload_url: str
     file_path: str
-    public_url: str
+    public_url: str = Field(..., description="Deprecated client field containing the private object path, not a public URL")
     expires_in_seconds: int
     category: str

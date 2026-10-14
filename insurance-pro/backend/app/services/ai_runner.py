@@ -1,14 +1,13 @@
 import logging
 import os
-import ssl
 import tempfile
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Dict, Any, List
 
 from ultralytics import YOLO, RTDETR
+from app.core.config import settings
 from app.db.supabase import db
+from app.services.evidence_storage import canonical_evidence_path
 from app.services.fraud_analysis_service import PhashColumnMissingError, analyze_fraud
 
 logger = logging.getLogger("claimpilot.ai_runner")
@@ -20,10 +19,6 @@ RTDETR_FALLBACK_WEIGHTS_PATH = BASE_DIR / "models" / "weights" / "rt-detr.pt"
 
 _yolo_model = None
 _rtdetr_model = None
-
-# Create an unverified context to bypass local SSL certificate verification
-ssl_context = ssl._create_unverified_context()
-
 
 def get_models():
     global _yolo_model, _rtdetr_model
@@ -138,17 +133,39 @@ async def _save_fraud_analysis(
 async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[str, Any]:
     logger.info(f"[AI PIPELINE TRIGGERED] Starting vision adjudication for Claim: {claim_id}")
 
+    claim = await db.select(
+        "claims",
+        params={"select": "id,user_id,description,created_at", "id": f"eq.{claim_id}"},
+        single=True,
+    )
+    owner_id = str((claim or {}).get("user_id") or "")
+    if not owner_id:
+        logger.warning("Skipping AI analysis for claim %s: claim owner is unavailable", claim_id)
+        return {"claim_id": claim_id, "status": "skipped", "reason": "claim_owner_unavailable"}
+
     # Evidence registration is the trigger. Do not start analysis for a new
     # claim until at least one damage photo has been cataloged.
     evidence_list = await db.select(
         "claim_evidence", params={"claim_id": f"eq.{claim_id}"}
     ) or []
-    photo_evidence = [
-        evidence for evidence in evidence_list
-        if evidence.get("category") in ["photo", "damage_photo"] and evidence.get("file_url")
-    ]
-    photo_urls = [evidence["file_url"] for evidence in photo_evidence]
-    if not photo_urls:
+    photo_evidence = []
+    for evidence in evidence_list:
+        if evidence.get("category") not in {"photo", "damage_photo"}:
+            continue
+        stored_path = evidence.get("storage_path")
+        if not isinstance(stored_path, str) or stored_path.strip().lower() in {"", "none", "null"}:
+            stored_path = evidence.get("file_url")
+        try:
+            path = canonical_evidence_path(
+                stored_path or "",
+                category="photo",
+                owner_id=owner_id,
+            )
+        except Exception:
+            logger.warning("Skipping malformed evidence path for claim %s", claim_id)
+            continue
+        photo_evidence.append((evidence, path))
+    if not photo_evidence:
         logger.info("Skipping AI analysis for claim %s: no damage photo evidence", claim_id)
         return {"claim_id": claim_id, "status": "skipped", "reason": "no_photo_evidence"}
 
@@ -175,30 +192,13 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     downloaded_count = 0
     successful_inferences = 0
     with tempfile.TemporaryDirectory() as tmp_dir:
-        for idx, evidence in enumerate(photo_evidence[:10]):
-            raw_url = evidence["file_url"]
+        for idx, (evidence, storage_path) in enumerate(photo_evidence[:10]):
             try:
                 local_photo_path = os.path.join(tmp_dir, f"evidence_{idx}.jpg")
-
-                parsed_url = urllib.parse.urlparse(raw_url)
-                encoded_path = urllib.parse.quote(parsed_url.path)
-                clean_url = urllib.parse.urlunparse((
-                    parsed_url.scheme,
-                    parsed_url.netloc,
-                    encoded_path,
-                    parsed_url.params,
-                    parsed_url.query,
-                    parsed_url.fragment
-                ))
-                req = urllib.request.Request(
-                    clean_url,
-                    headers={"User-Agent": "Mozilla/5.0"},
+                image_bytes = await db.download_storage_object(
+                    settings.SUPABASE_STORAGE_BUCKET,
+                    storage_path,
                 )
-                opener = urllib.request.build_opener(
-                    urllib.request.HTTPSHandler(context=ssl_context)
-                )
-                with opener.open(req) as response:
-                    image_bytes = response.read()
                 with open(local_photo_path, "wb") as out_file:
                     out_file.write(image_bytes)
                 downloaded_count += 1
@@ -293,7 +293,7 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     total_est = sum(item["estimated_cost"] for item in detected_damages)
     estimated_min = round(total_est * 0.85, 2) if detected_damages else 0.0
     estimated_max = round(total_est * 1.15, 2) if detected_damages else 0.0
-    primary_image_url = photo_urls[0]
+    primary_image_url = photo_evidence[0][1]
 
     analysis_payload = {
         "claim_id": claim_id,
@@ -317,14 +317,6 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
 
     fraud_payload = None
     try:
-        claim = await db.select(
-            "claims",
-            params={
-                "select": "id,user_id,description,created_at",
-                "id": f"eq.{claim_id}",
-            },
-            single=True,
-        )
         fraud_result = await analyze_fraud(
             claim_id=claim_id,
             claimant_id=(claim or {}).get("user_id"),
