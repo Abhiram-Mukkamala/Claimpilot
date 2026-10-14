@@ -125,12 +125,12 @@ The API will be live at:
 
 # ── Supabase Credentials ─────────────────────────────
 SUPABASE_URL="https://your-project-ref.supabase.co"
-SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+SUPABASE_ANON_KEY="YOUR_VALUE_HERE"
+SUPABASE_SERVICE_ROLE_KEY="YOUR_VALUE_HERE"
 SUPABASE_STORAGE_BUCKET="claim-evidence"
 
 # ── JWT Configuration ────────────────────────────────
-JWT_SECRET="your-secure-random-secret-minimum-32-chars"
+JWT_SECRET="YOUR_VALUE_HERE"
 JWT_ALGORITHM="HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=1440          # 24 hours
 
@@ -142,7 +142,7 @@ CORS_ORIGINS="http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
 SMTP_HOST="smtp.resend.com"
 SMTP_PORT=587
 SMTP_USER="resend"
-SMTP_PASSWORD="re_YourResendApiKeyHere"       # Resend API Key as SMTP password
+SMTP_PASSWORD="YOUR_VALUE_HERE"       # Resend API Key as SMTP password
 SMTP_FROM_EMAIL="onboarding@resend.dev"       # Resend sandbox sender (free tier)
 SMTP_FROM_NAME="ClaimPilot"
 SUPPORT_EMAIL="your-email@gmail.com"
@@ -1048,7 +1048,7 @@ This section guides teammates through setting up **real** OTP delivery so that v
 
 1. Go to **Settings → API Keys → Create API Key**.
 2. Name it `claimpilot-dev` and grant **Full Access** (sending permission).
-3. Copy the key — it looks like: `re_SbWKS8wz_CufEEWXAfcpHPmCDLN7nwyad`.
+3. Copy the key — it looks like: `re_YOUR_RESEND_API_KEY_HERE`.
 
 #### Step 3: Configure Sender Identity
 
@@ -1079,7 +1079,7 @@ SMTP_FROM_EMAIL="notifications@claimpilot.com"
 SMTP_HOST="smtp.resend.com"
 SMTP_PORT=587
 SMTP_USER="resend"
-SMTP_PASSWORD="YOUR_SMTP_APP_PASSWORD"   # Your API key
+SMTP_PASSWORD="YOUR_VALUE_HERE"   # Your API key
 SMTP_FROM_EMAIL="onboarding@resend.dev"
 SMTP_FROM_NAME="ClaimPilot"
 SUPPORT_EMAIL="your-email@gmail.com"
@@ -1170,7 +1170,7 @@ The SMS dispatch chain in `app/api/v1/auth_otp.py` → `send_otp_via_sms()`:
 3. Set:
 
 ```env
-FAST2SMS_API_KEY="YOUR_FAST2SMS_API_KEY"
+FAST2SMS_API_KEY=""
 ```
 
 4. Fast2SMS only accepts **10-digit Indian mobile numbers** (the backend strips the `+91` prefix automatically).
