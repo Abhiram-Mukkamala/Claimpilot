@@ -1,5 +1,6 @@
 import httpx
 from typing import Dict, Any, Optional, List, Union
+from urllib.parse import quote, urlparse
 from supabase import create_client, Client
 from app.core.config import settings
 
@@ -102,6 +103,49 @@ class AsyncSupabaseDB:
                 "token": data.get("token", ""),
                 "path": file_path
             }
+
+    async def create_signed_read_url(
+        self,
+        bucket: str,
+        file_path: str,
+        expires_in: int = 300,
+    ) -> Dict[str, str]:
+        """Create a time-limited download URL for an authorized private object."""
+        endpoint = (
+            f"{self.storage_url}/object/sign/{quote(bucket, safe='')}/"
+            f"{quote(file_path, safe='/')}"
+        )
+        async with self._get_client() as client:
+            response = await client.post(endpoint, json={"expiresIn": expires_in})
+            if response.status_code >= 400:
+                raise RuntimeError("Could not create a private evidence URL.")
+            data = response.json()
+
+        raw_url = data.get("signedURL") or data.get("signedUrl") or data.get("url")
+        if not isinstance(raw_url, str) or not raw_url:
+            raise RuntimeError("Storage did not return a private evidence URL.")
+        signed_url = (
+            f"{settings.SUPABASE_URL}/storage/v1{raw_url}"
+            if raw_url.startswith("/")
+            else raw_url
+        )
+        parsed = urlparse(signed_url)
+        configured = urlparse(settings.SUPABASE_URL)
+        if parsed.scheme != configured.scheme or parsed.netloc != configured.netloc:
+            raise RuntimeError("Storage returned an invalid private evidence URL.")
+        return {"signed_url": signed_url}
+
+    async def download_storage_object(self, bucket: str, file_path: str) -> bytes:
+        """Download an object using backend service-role authorization."""
+        endpoint = (
+            f"{self.storage_url}/object/authenticated/{quote(bucket, safe='')}/"
+            f"{quote(file_path, safe='/')}"
+        )
+        async with self._get_client() as client:
+            response = await client.get(endpoint)
+            if response.status_code >= 400:
+                raise RuntimeError("Could not download private claim evidence.")
+            return response.content
 
 
 db = AsyncSupabaseDB()

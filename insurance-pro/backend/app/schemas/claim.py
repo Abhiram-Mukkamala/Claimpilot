@@ -105,12 +105,14 @@ class OtpSendResponse(BaseModel):
     identifier: str
     channel: str
     expires_in_minutes: int
+    challenge_id: str
 
 
 class OtpVerifyRequest(BaseModel):
     identifier: str
-    otp_code: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    otp_code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$", description="6-digit verification code")
     channel: OtpChannel = OtpChannel.email
+    challenge_id: Optional[str] = None
     metadata: Optional[UserMetadata] = None
 
 
@@ -316,6 +318,6 @@ class PresignedUploadUrlRequest(BaseModel):
 class PresignedUploadUrlResponse(BaseModel):
     upload_url: str
     file_path: str
-    public_url: str
+    public_url: str = Field(..., description="Deprecated client field containing the private object path, not a public URL")
     expires_in_seconds: int
     category: str

@@ -57,7 +57,7 @@ def redact(value: Any) -> Any:
     """Redact sensitive values while preserving response structure."""
     if isinstance(value, dict):
         sensitive = re.compile(
-            r"token|password|email|phone|name|otp|verification.?code|identifier|url|storage.?path|file.?path|authorization",
+            r"token|challenge|password|email|phone|name|otp|verification.?code|identifier|url|storage.?path|file.?path|authorization",
             re.IGNORECASE,
         )
         return {
@@ -118,12 +118,22 @@ def login(client: httpx.Client, email: str, password: str, otp_code: str | None,
     data = response.json()
     token = data.get("access_token")
     if data.get("requires_otp"):
+        otp_details = data.get("otp_details") or {}
+        challenge_id = otp_details.get("challenge_id")
+        if not isinstance(challenge_id, str) or not challenge_id:
+            check(f"{role} OTP verification", False, response=response, detail="OTP challenge was not returned")
+            return None
         if not otp_code:
             check(f"{role} OTP verification", False, response=response, detail="OTP code was not configured")
             return None
         verification = client.post(
             f"{BASE_URL}/auth/otp/verify",
-            json={"identifier": email, "otp_code": otp_code, "channel": "email"},
+            json={
+                "identifier": email,
+                "otp_code": otp_code,
+                "channel": "email",
+                "challenge_id": challenge_id,
+            },
         )
         if verification.status_code not in {200, 201}:
             check(f"{role} OTP verification", False, response=verification)

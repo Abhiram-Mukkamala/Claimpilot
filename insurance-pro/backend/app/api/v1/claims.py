@@ -17,6 +17,7 @@ from app.schemas.claim import (
     CustomerDecisionType,
     ClaimStatus
 )
+from app.services.evidence_storage import analysis_for_authorized_claim, evidence_for_authorized_claim
 
 router = APIRouter(prefix="/claims", tags=["Customer Claims Portal"])
 logger = logging.getLogger("claimpilot.claims")
@@ -241,10 +242,14 @@ async def get_customer_claim_detail(
 
     evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
     ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{real_claim_id}"}, single=True)
+    private_evidence = await evidence_for_authorized_claim(
+        evidence or [], owner_id=str(claim.get("user_id") or ""), database=db
+    )
+    ai_analysis = analysis_for_authorized_claim(ai_analysis, private_evidence)
 
     return {
         "claim": claim,
-        "evidence": evidence or [],
+        "evidence": private_evidence,
         "ai_analysis": ai_analysis
     }
 
@@ -278,7 +283,11 @@ async def get_claim_ai_analysis(
             detail={"message": "AI analysis not found or still processing for this claim", "claim_id": claim_id}
         )
 
-    return ai_analysis
+    evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
+    private_evidence = await evidence_for_authorized_claim(
+        evidence or [], owner_id=str(claim.get("user_id") or ""), database=db
+    )
+    return analysis_for_authorized_claim(ai_analysis, private_evidence)
 
 
 @router.post(

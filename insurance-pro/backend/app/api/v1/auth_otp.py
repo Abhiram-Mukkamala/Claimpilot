@@ -1,11 +1,15 @@
 # app/api/v1/auth_otp.py
-import random
+import asyncio
+import hashlib
+import hmac
 import logging
 import os
+import secrets
+import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
-from typing import Dict, Any
+from typing import Any
 
 from app.core.config import settings
 from app.core.security import create_access_token
@@ -23,6 +27,144 @@ router = APIRouter(prefix="/auth/otp", tags=["Dual OTP Authentication (Email & S
 logger = logging.getLogger("claimpilot.otp")
 MAX_OTP_SENDS = 3
 OTP_SEND_WINDOW_MINUTES = 10
+_send_locks = tuple(asyncio.Lock() for _ in range(64))
+
+
+def _otp_tag(
+    otp_code: str,
+    *,
+    identifier: str,
+    channel: str,
+    purpose: str,
+    user_id: str,
+    challenge_id: str,
+    created_at: str,
+) -> str:
+    """Return a schema-compatible keyed tag; never persist the raw OTP."""
+    key = hmac.new(
+        settings.JWT_SECRET.encode("utf-8"),
+        b"claimpilot:otp-verification:v1",
+        hashlib.sha256,
+    ).digest()
+    message = "\0".join((purpose, identifier, channel, user_id, challenge_id, created_at, otp_code))
+    digest = hmac.new(key, message.encode("utf-8"), hashlib.sha256).digest()
+    return f"{int.from_bytes(digest[:8], 'big') % 1_000_000:06d}"
+
+
+def _parse_expiry(value: Any) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError("Missing OTP expiry")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _canonical_timestamp(value: Any) -> str:
+    parsed = _parse_expiry(value)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+async def issue_otp(
+    payload: OtpSendRequest,
+    background_tasks: BackgroundTasks,
+    *,
+    purpose: str,
+    authenticated_user_id: str = "",
+) -> OtpSendResponse:
+    """Create a short-lived login or signup challenge and dispatch its code."""
+    clean_identifier = payload.identifier.strip()
+    if payload.channel == OtpChannel.email:
+        clean_identifier = clean_identifier.lower()
+
+    user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
+    existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
+    user_id = str(existing_user.get("id")) if isinstance(existing_user, dict) and existing_user.get("id") else ""
+
+    if purpose == "signup":
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Unable to start verification for this identifier.",
+            )
+    elif purpose == "login":
+        if not user_id or user_id != str(authenticated_user_id):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to start verification.",
+            )
+    else:
+        raise ValueError("Unsupported OTP purpose")
+
+    # Process-local serialization closes the check-then-insert race within one
+    # worker. A database RPC/constraint is still required across workers.
+    lock_key = f"{clean_identifier}\0{payload.channel.value}"
+    lock = _send_locks[hash(lock_key) % len(_send_locks)]
+    async with lock:
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(minutes=OTP_SEND_WINDOW_MINUTES)
+        recent_requests = await db.select(
+            "otp_verifications",
+            params={
+                "identifier": f"eq.{clean_identifier}",
+                "created_at": f"gte.{window_start.isoformat()}",
+                "select": "id",
+                "limit": str(MAX_OTP_SENDS),
+            },
+        )
+        if not isinstance(recent_requests, list):
+            logger.error("event=auth.otp.send outcome=rate_limit_check_failed")
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send a verification code.")
+        if len(recent_requests) >= MAX_OTP_SENDS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many verification codes requested. Please try again later.",
+            )
+
+        # Fixed codes are import-time gated to development/test only.
+        otp_code = _dev_fixed_code if _dev_fixed_code is not None else f"{secrets.randbelow(1_000_000):06d}"
+        expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+        challenge_id = str(uuid.uuid4())
+        created_at = _canonical_timestamp(now.isoformat())
+        otp_record = {
+            "id": challenge_id,
+            "identifier": clean_identifier,
+            "otp_code": _otp_tag(
+                otp_code,
+                identifier=clean_identifier,
+                channel=payload.channel.value,
+                purpose=purpose,
+                user_id=user_id,
+                challenge_id=challenge_id,
+                created_at=created_at,
+            ),
+            "channel": payload.channel.value,
+            "attempts": 0,
+            "is_verified": False,
+            "expires_at": expires_at.isoformat(),
+            "created_at": created_at,
+        }
+
+        try:
+            await db.insert("otp_verifications", otp_record)
+        except Exception as exc:
+            logger.error("event=auth.otp.send outcome=record_failed user_id=%s", user_id or "unknown")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to send a verification code.",
+            ) from exc
+
+    logger.info("event=auth.otp.send outcome=recorded user_id=%s", user_id or "unknown")
+    if payload.channel == OtpChannel.email:
+        background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
+    else:
+        background_tasks.add_task(send_otp_via_sms, clean_identifier, otp_code, user_id or None)
+
+    return OtpSendResponse(
+        message=f"6-digit verification code dispatched via {payload.channel.value.upper()}.",
+        identifier=clean_identifier,
+        channel=payload.channel.value,
+        expires_in_minutes=settings.OTP_EXPIRE_MINUTES,
+        challenge_id=challenge_id,
+    )
 
 _environment = os.environ.get("ENVIRONMENT", "").strip().lower()
 _dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
@@ -111,72 +253,7 @@ async def send_otp_via_sms(phone_number: str, otp_code: str, user_id: str | None
 
 @router.post("/send", response_model=OtpSendResponse, status_code=status.HTTP_200_OK)
 async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
-    clean_identifier = payload.identifier.strip()
-    if payload.channel == OtpChannel.email:
-        clean_identifier = clean_identifier.lower()
-    
-    user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
-    existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
-    user_id = existing_user.get("id") if isinstance(existing_user, dict) else None
-
-    now = datetime.now(timezone.utc)
-    window_start = now - timedelta(minutes=OTP_SEND_WINDOW_MINUTES)
-    recent_requests = await db.select(
-        "otp_verifications",
-        params={
-            "identifier": f"eq.{clean_identifier}",
-            "created_at": f"gte.{window_start.isoformat()}",
-            "select": "id",
-            "limit": str(MAX_OTP_SENDS),
-        },
-    )
-    if not isinstance(recent_requests, list):
-        logger.error("event=auth.otp.send outcome=rate_limit_check_failed")
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send a verification code.")
-    if len(recent_requests) >= MAX_OTP_SENDS:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification codes requested. Please try again later.",
-        )
-    
-    # A fixed code is available only in development/test, validated at import.
-    if _dev_fixed_code is not None:
-        otp_code = _dev_fixed_code
-    else:
-        otp_code = f"{random.randint(0, 999999):06d}"
-    expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
-
-    otp_record = {
-        "identifier": clean_identifier,
-        "otp_code": str(otp_code),
-        "channel": payload.channel.value,
-        "attempts": 0,
-        "is_verified": False,
-        "expires_at": expires_at.isoformat(),
-        "created_at": now.isoformat()
-    }
-
-    try:
-        await db.insert("otp_verifications", otp_record)
-        logger.info("event=auth.otp.send outcome=recorded user_id=%s", user_id or "unknown")
-    except Exception as e:
-        logger.error("event=auth.otp.send outcome=record_failed user_id=%s", user_id or "unknown")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Unable to send a verification code.",
-        ) from e
-
-    if payload.channel == OtpChannel.email:
-        background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
-    else:
-        background_tasks.add_task(send_otp_via_sms, clean_identifier, otp_code, user_id)
-
-    return OtpSendResponse(
-        message=f"6-digit verification code dispatched via {payload.channel.value.upper()}.",
-        identifier=clean_identifier,
-        channel=payload.channel.value,
-        expires_in_minutes=settings.OTP_EXPIRE_MINUTES
-    )
+    return await issue_otp(payload, background_tasks, purpose="signup")
 
 
 @router.post("/verify", response_model=OtpVerifyResponse, status_code=status.HTTP_200_OK)
@@ -184,39 +261,58 @@ async def verify_otp(payload: OtpVerifyRequest):
     identifier = payload.identifier.strip()
     if "@" in identifier:
         identifier = identifier.lower()
-
     user_otp = str(payload.otp_code).strip()
+    channel = payload.channel.value
+    user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
 
-    # Extract raw metadata payload sent from frontend
-    meta = getattr(payload, "metadata", None) or getattr(payload, "user_metadata", None)
-    
-    # Safely inspect password across dict or object
-    password_val = None
-    if meta:
-        password_val = meta.get("password") if isinstance(meta, dict) else getattr(meta, "password", None)
-
-    # ==================== REGISTER / OTP DEBUGGER ====================
-    # =================================================================
-
-    # Query latest unverified OTP record for the identifier
-    records = await db.select(
-        "otp_verifications",
-        params={
-            "identifier": f"eq.{identifier}",
-            "is_verified": "eq.false",
-            "order": "created_at.desc",
-            "limit": "1"
-        }
-    )
-
-    if not records or len(records) == 0:
+    otp_filters = {
+        "identifier": f"eq.{identifier}",
+        "channel": f"eq.{channel}",
+        "is_verified": "eq.false",
+        "order": "created_at.desc,id.desc",
+        "limit": "1",
+    }
+    try:
+        records = await db.select(
+            "otp_verifications",
+            params=otp_filters,
+        )
+    except Exception as exc:
+        logger.error("event=auth.otp.verify outcome=lookup_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
+    if not isinstance(records, list):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.")
+    if not records:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active OTP request found. Please request a new OTP."
         )
 
     active_otp = records[0]
-    otp_id = active_otp["id"]
+    otp_id = active_otp.get("id")
+    created_at = active_otp.get("created_at")
+    if payload.challenge_id and payload.challenge_id != str(otp_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This verification challenge has been replaced. Please use the latest code.",
+        )
+    if not otp_id or not created_at or active_otp.get("channel") != channel:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification code is invalid. Please request a new code.")
+
+    # A login challenge exists only when the password-authenticated login path
+    # inserted it. Public OTP sends are signup-only and reject existing users.
+    try:
+        profile = await db.select("profiles", params={user_filter: f"eq.{identifier}"}, single=True)
+    except Exception as exc:
+        logger.error("event=auth.otp.verify outcome=profile_lookup_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
+    if profile and not isinstance(profile, dict):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.")
+    purpose = "login" if profile else "signup"
+    user_id = str(profile.get("id")) if profile and profile.get("id") else ""
+    if purpose == "login" and not user_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.")
+
     try:
         current_attempts = int(active_otp.get("attempts", 0) or 0)
     except (TypeError, ValueError) as exc:
@@ -225,20 +321,15 @@ async def verify_otp(payload: OtpVerifyRequest):
             detail="Verification code is invalid. Please request a new OTP.",
         ) from exc
 
-    # Validate expiration
-    expires_at_raw = active_otp.get("expires_at")
     try:
-        if not expires_at_raw:
-            raise ValueError("Missing OTP expiry")
-        expires_at_dt = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
-        if expires_at_dt.tzinfo is None:
-            expires_at_dt = expires_at_dt.replace(tzinfo=timezone.utc)
+        expires_at_dt = _parse_expiry(active_otp.get("expires_at"))
     except (AttributeError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification code has expired. Please request a new OTP.",
         ) from exc
-    if datetime.now(timezone.utc) >= expires_at_dt:
+    now = datetime.now(timezone.utc)
+    if now >= expires_at_dt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification code has expired. Please request a new OTP."
@@ -254,21 +345,49 @@ async def verify_otp(payload: OtpVerifyRequest):
             )
         )
 
-    # Guarantee 6-digit string alignment for comparison
-    raw_db_otp = str(active_otp["otp_code"]).strip()
-    db_otp = raw_db_otp.zfill(6) if raw_db_otp.isdigit() else raw_db_otp
+    expected_tag = _otp_tag(
+        user_otp,
+        identifier=identifier,
+        channel=channel,
+        purpose=purpose,
+        user_id=user_id,
+        challenge_id=str(otp_id),
+        created_at=_canonical_timestamp(created_at),
+    )
+    stored_tag = str(active_otp.get("otp_code") or "").strip().zfill(6)
 
-    if db_otp != user_otp:
+    # Signup needs the metadata required to provision a real Auth identity.
+    meta = payload.metadata
+    if purpose == "signup":
+        if (
+            not meta
+            or not meta.full_name
+            or not meta.full_name.strip()
+            or not meta.password
+            or len(meta.password) < 6
+            or not meta.dob
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Registration details are required to complete verification.",
+            )
+
+    if len(user_otp) != 6 or not user_otp.isdigit() or not hmac.compare_digest(stored_tag, expected_tag):
         new_attempts = current_attempts + 1
-        attempt_update = await db.update(
-            "otp_verifications",
-            filters={
-                "id": f"eq.{otp_id}",
-                "is_verified": "eq.false",
-                "attempts": f"eq.{current_attempts}",
-            },
-            data={"attempts": new_attempts},
-        )
+        try:
+            attempt_update = await db.update(
+                "otp_verifications",
+                filters={
+                    "id": f"eq.{otp_id}",
+                    "is_verified": "eq.false",
+                    "attempts": f"eq.{current_attempts}",
+                    "expires_at": f"gt.{now.isoformat()}",
+                },
+                data={"attempts": new_attempts},
+            )
+        except Exception as exc:
+            logger.error("event=auth.otp.verify outcome=attempt_update_failed error_type=%s", type(exc).__name__)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
         if not attempt_update:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -280,86 +399,63 @@ async def verify_otp(payload: OtpVerifyRequest):
             detail=f"Invalid verification code. {remaining} attempt(s) remaining."
         )
 
-    # Mark OTP as verified
-    claimed_otp = await db.update(
-        "otp_verifications", 
-        filters={"id": f"eq.{otp_id}", "is_verified": "eq.false"},
-        data={"is_verified": True, "attempts": current_attempts + 1}
-    )
+    # Consume the challenge with one conditional update that also enforces
+    # server-side expiry and the attempt count observed above.
+    try:
+        claimed_otp = await db.update(
+            "otp_verifications",
+            filters={
+                "id": f"eq.{otp_id}",
+                "is_verified": "eq.false",
+                "attempts": f"eq.{current_attempts}",
+                "expires_at": f"gt.{now.isoformat()}",
+            },
+            data={"is_verified": True, "attempts": current_attempts + 1},
+        )
+    except Exception as exc:
+        logger.error("event=auth.otp.verify outcome=consume_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
     if not claimed_otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification code has already been used. Please request a new OTP.",
         )
 
-    channel = active_otp.get("channel", "email")
-    user_filter = "email" if channel == "email" else "phone_number"
-    
-    # Check if user already exists in public.profiles
-    profile = await db.select("profiles", params={user_filter: f"eq.{identifier}"}, single=True)
-    
     if profile:
-        # Existing user -> Complete 2FA login flow
-        user_id = profile["id"]
-        update_fields = {"is_email_verified": True} if channel == "email" else {"is_phone_verified": True}
-        
-        # Update metadata if passed from UI
-        if meta:
-            full_name_val = meta.get("full_name") if isinstance(meta, dict) else getattr(meta, "full_name", None)
-            phone_val = meta.get("phone_number") if isinstance(meta, dict) else getattr(meta, "phone_number", None)
-            dob_val = meta.get("dob") if isinstance(meta, dict) else getattr(meta, "dob", None)
-
-            if full_name_val:
-                update_fields["full_name"] = full_name_val
-            if phone_val:
-                update_fields["phone_number"] = phone_val
-            if dob_val:
-                update_fields["dob"] = str(dob_val)
-
-        await db.update("profiles", filters={"id": f"eq.{user_id}"}, data=update_fields)
-        
-        # Refresh profile details for JWT payload
-        profile = await db.select("profiles", params={"id": f"eq.{user_id}"}, single=True)
-        role = profile.get("role", "customer")
-        full_name = profile.get("full_name", "Verified User")
-        email = profile.get("email", identifier if channel == "email" else "")
+        role = profile.get("role") or "customer"
+        full_name = profile.get("full_name") or "Verified User"
+        email = profile.get("email") or (identifier if channel == "email" else "")
     else:
-        # New user -> Complete sign-up flow & provision user in Supabase Auth
-        email_prefix = identifier.split("@")[0] if "@" in identifier else identifier
-        
-        full_name_val = meta.get("full_name") if isinstance(meta, dict) else getattr(meta, "full_name", None)
-        phone_val = meta.get("phone_number") if isinstance(meta, dict) else getattr(meta, "phone_number", None)
-        dob_val = meta.get("dob") if isinstance(meta, dict) else getattr(meta, "dob", None)
-
-        full_name = full_name_val or email_prefix.capitalize()
-        phone_number = phone_val or (identifier if channel == "sms" else "")
-        dob = str(dob_val) if dob_val else "2000-01-01"
+        full_name = meta.full_name.strip()
+        phone_number = meta.phone_number or (identifier if channel == "sms" else "")
+        dob = str(meta.dob)
         role = "customer"
         email = identifier if channel == "email" else f"{identifier}@claimpilot.sms"
 
-        # 1. Provision user inside Supabase Auth (auth.users)
+        # Provision Auth only after OTP proof; failures never mint a session.
         try:
             create_params = {
                 "email": email,
-                "email_confirm": True,
+                "password": meta.password,
+                "email_confirm": channel == "email",
                 "user_metadata": {
                     "full_name": full_name,
                     "phone_number": phone_number,
                     "role": role
                 }
             }
-            if password_val:
-                create_params["password"] = str(password_val)
-
             auth_res = supabase_admin.auth.admin.create_user(create_params)
-            user_id = auth_res.user.id
+            user_id = str(auth_res.user.id)
+            if not user_id:
+                raise RuntimeError("Auth user ID missing")
             logger.info("event=auth.otp.verify outcome=auth_user_created user_id=%s", user_id)
         except Exception as auth_err:
-            logger.warning("event=auth.otp.verify outcome=auth_user_creation_failed")
-            import uuid
-            user_id = str(uuid.uuid4())
+            logger.warning("event=auth.otp.verify outcome=auth_user_creation_failed error_type=%s", type(auth_err).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to create the account. Please request a new code and try again.",
+            ) from auth_err
 
-        # 2. Insert into public.profiles matching auth.users ID
         new_user = {
             "id": user_id,
             "full_name": full_name,
@@ -373,9 +469,16 @@ async def verify_otp(payload: OtpVerifyRequest):
         try:
             supabase_admin.table("profiles").insert(new_user).execute()
             profile = new_user
-        except Exception as db_err:
-            logger.error("event=auth.otp.verify outcome=profile_insert_failed user_id=%s", user_id)
-            profile = {"id": user_id, "full_name": full_name, "email": email, "phone_number": phone_number, "dob": dob, "role": role}
+        except Exception as profile_err:
+            logger.error("event=auth.otp.verify outcome=profile_insert_failed user_id=%s error_type=%s", user_id, type(profile_err).__name__)
+            try:
+                supabase_admin.auth.admin.delete_user(user_id)
+            except Exception as cleanup_err:
+                logger.error("event=auth.otp.verify_cleanup outcome=failure user_id=%s error_type=%s", user_id, type(cleanup_err).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to create the account profile. Please request a new code and try again.",
+            ) from profile_err
 
     # Issue session access token upon successful OTP verification
     token = create_access_token({

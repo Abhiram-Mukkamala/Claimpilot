@@ -16,7 +16,10 @@ ClaimPilot is a modern motor insurance claims management web application. It con
 
 ### 3. Agent Review & Adjudication (`/agent`)
 * **Claims Queue:** The insurance agent sees new claims in a real-time queue with priority flags.
-* **Deep Inspection:** The agent inspects damage bounding boxes, 3D deformation topology, AI surface normals, and algorithmic fraud risk scores (0–100%).
+* **Deep Inspection:** The agent inspects damage bounding boxes, 3D deformation topology, AI surface normals, and a prototype fraud score (0–100, not a percentage) with a risk level.
+  * The score combines three signals: cross-claim pHash image matching, narrative-versus-detected severity consistency, and—when claimant identity is available—whether the claimant has at least three claims in a rolling 183-day window.
+  * An OpenAI classifier is optional and runs only when the OpenAI provider, API key, and client are available. Otherwise, or if the call fails, the narrative check uses a deterministic keyword fallback. The live OpenAI path is unverified.
+  * The score supports human review. It is not proof of fraud and does not make autonomous claim decisions.
 * **Adjudication:** The agent can **Approve** (setting a settlement amount), **Reject** (with justification notes), or **Request Information** from the customer.
 
 ### 4. Settlement & Finance Handoff

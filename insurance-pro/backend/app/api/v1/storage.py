@@ -3,7 +3,6 @@ import uuid
 import re
 from datetime import datetime, timezone
 import logging
-from urllib.parse import unquote, urlparse
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import Dict, Any
 
@@ -18,6 +17,7 @@ from app.schemas.claim import (
     ClaimEvidenceCreate,
     ClaimEvidenceResponse
 )
+from app.services.evidence_storage import canonical_evidence_path
 from app.services.ai_runner import trigger_ai_assessment
 
 router = APIRouter(prefix="/storage", tags=["Storage & Evidence Uploads"])
@@ -68,15 +68,12 @@ async def generate_presigned_upload_url(
             expires_in=expires_in
         )
         
-        public_url = (
-            f"{settings.SUPABASE_URL}/storage/v1/object/public/"
-            f"{settings.SUPABASE_STORAGE_BUCKET}/{file_path}"
-        )
-
         return PresignedUploadUrlResponse(
             upload_url=sign_result["signed_url"],
             file_path=file_path,
-            public_url=public_url,
+            # Retained for client compatibility; this is a private object path,
+            # never a public URL.
+            public_url=file_path,
             expires_in_seconds=expires_in,
             category=category_val
         )
@@ -119,22 +116,11 @@ async def catalog_evidence(
     require_customer_claim_owner(claim, user)
     real_claim_id = claim.get("id")
 
-    configured_url = urlparse(settings.SUPABASE_URL)
-    supplied_url = urlparse(payload.file_url)
-    object_prefix = f"/storage/v1/object/public/{settings.SUPABASE_STORAGE_BUCKET}/"
-    if (
-        supplied_url.scheme != configured_url.scheme
-        or supplied_url.netloc != configured_url.netloc
-        or not supplied_url.path.startswith(object_prefix)
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Evidence URL is not an authorized storage object.")
-    storage_path = unquote(supplied_url.path[len(object_prefix):])
-    expected_path_prefix = f"evidence/{category_val}/{user_id(user)}/"
-    if (
-        not storage_path.startswith(expected_path_prefix)
-        or any(part in {"", ".", ".."} for part in storage_path.split("/"))
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Evidence object is not owned by this customer.")
+    storage_path = canonical_evidence_path(
+        payload.file_url,
+        category=category_val,
+        owner_id=user_id(user),
+    )
 
     # 2. Enforce Evidence Quantity Limits per Claim
     existing_evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
@@ -163,10 +149,24 @@ async def catalog_evidence(
             detail={"message": f"Only one upload is allowed for {category_val}."}
         )
 
-    # Store the canonical object path from the authorized public storage URL.
+    # Confirm the object exists through a short-lived private Storage URL, then
+    # persist only its canonical path. The URL is intentionally discarded.
+    try:
+        await db.create_signed_read_url(
+            bucket=settings.SUPABASE_STORAGE_BUCKET,
+            file_path=storage_path,
+            expires_in=60,
+        )
+    except Exception as exc:
+        logger.warning("event=storage.evidence_register outcome=object_not_available error_type=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded evidence object is not available.",
+        ) from exc
+
     evidence_data = {
         "claim_id": real_claim_id,
-        "file_url": supplied_url._replace(query="", fragment="").geturl(),
+        "file_url": storage_path,
         "storage_path": storage_path,  # Satisfies NOT NULL constraint on claim_evidence.storage_path
         "file_type": payload.file_type,
         "category": category_val

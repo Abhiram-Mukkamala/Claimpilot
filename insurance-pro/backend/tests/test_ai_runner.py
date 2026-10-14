@@ -93,13 +93,15 @@ class PipelineDatabase:
                 "id": "evidence-123",
                 "claim_id": self.claim_id,
                 "category": "photo",
-                "file_url": "https://unit-test.invalid/photo.png?token=fake",
+                "file_url": "evidence/photo/user-123/photo.png",
+                "storage_path": "evidence/photo/user-123/photo.png",
                 "phash": None,
             })
         self.claims = [self.claim]
         self.ai_analysis = None
         self.fraud_analysis = None
         self.phash_missing = phash_missing
+        self.downloaded_paths = []
 
     async def select(self, table, params=None, single=False):
         params = params or {}
@@ -143,6 +145,13 @@ class PipelineDatabase:
             return self.fraud_analysis
         raise AssertionError(f"Unexpected table select: {table}")
 
+    async def download_storage_object(self, bucket, file_path):
+        self.downloaded_paths.append((bucket, file_path))
+        return _image_bytes()
+
+    async def create_signed_read_url(self, bucket, file_path, expires_in=300):
+        return {"signed_url": f"https://unit-test.invalid/private/{file_path}?expires={expires_in}"}
+
     async def update(self, table, filters, data):
         if table == "claims":
             claim_id = filters.get("id", "").removeprefix("eq.")
@@ -181,28 +190,6 @@ class PipelineDatabase:
         raise AssertionError(f"Unexpected table insert: {table}")
 
 
-class FakeResponse:
-    def __init__(self, contents):
-        self.contents = contents
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    def read(self):
-        return self.contents
-
-
-class FakeOpener:
-    def __init__(self, contents):
-        self.contents = contents
-
-    def open(self, _request):
-        return FakeResponse(self.contents)
-
-
 class EmptyPrediction:
     orig_shape = (64, 64)
     boxes = []
@@ -224,11 +211,6 @@ def runtime(monkeypatch):
     monkeypatch.setattr(ai_runner, "db", database)
     monkeypatch.setattr(ai_runner, "analyze_fraud", analyze_with_fake_database)
     monkeypatch.setattr(ai_runner, "get_models", lambda: (EmptyDetectionModel(), None))
-    monkeypatch.setattr(
-        ai_runner.urllib.request,
-        "build_opener",
-        lambda *_args, **_kwargs: FakeOpener(_image_bytes()),
-    )
     return database
 
 
@@ -261,6 +243,9 @@ def test_inference_failure_is_saved_and_claim_moves_to_manual_review(runtime, mo
     assert runtime.claim["status"] == "manual_review"
     assert runtime.evidence[0]["phash"]
     assert runtime.fraud_analysis["analysis_status"] == "completed"
+    assert runtime.downloaded_paths == [
+        (ai_runner.settings.SUPABASE_STORAGE_BUCKET, "evidence/photo/user-123/photo.png")
+    ]
 
 
 def test_missing_model_weights_still_runs_fraud_hashing(runtime, monkeypatch):
@@ -281,7 +266,8 @@ def test_upload_analysis_hashes_compares_persists_and_runs_once(runtime, monkeyp
         "id": "prior-evidence",
         "claim_id": "prior-claim",
         "category": "photo",
-        "file_url": "https://unit-test.invalid/prior.png",
+        "file_url": "evidence/photo/user-123/prior.png",
+        "storage_path": "evidence/photo/user-123/prior.png",
         "phash": image_hash,
     })
     model_calls = []

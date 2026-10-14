@@ -19,6 +19,7 @@ from app.services.email import (
     send_agent_rejection_email,
     send_request_info_email
 )
+from app.services.evidence_storage import analysis_for_authorized_claim, evidence_for_authorized_claim
 
 router = APIRouter(prefix="/agent", tags=["Agent Adjudication Workbench"])
 logger = logging.getLogger("claimpilot.agent")
@@ -76,11 +77,15 @@ async def get_agent_claim_detail(
     profile = await db.select("profiles", params={"id": f"eq.{claim['user_id']}"}, single=True)
     evidence = await db.select("claim_evidence", params={"claim_id": f"eq.{real_claim_id}"})
     ai_analysis = await db.select("claim_ai_analysis", params={"claim_id": f"eq.{real_claim_id}"}, single=True)
+    private_evidence = await evidence_for_authorized_claim(
+        evidence or [], owner_id=str(claim.get("user_id") or ""), database=db
+    )
+    ai_analysis = analysis_for_authorized_claim(ai_analysis, private_evidence)
 
     return {
         "claim": claim,
         "claimant": profile,
-        "evidence": evidence or [],
+        "evidence": private_evidence,
         "ai_analysis": ai_analysis
     }
 
