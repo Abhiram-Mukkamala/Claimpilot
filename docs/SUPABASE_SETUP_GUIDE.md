@@ -17,7 +17,7 @@ Before executing any commands, understand the boundary between checked-in reposi
 | **Schema Refinements** | `migration_v2.sql` adds missing columns: `claims.location_city`, `claims.pincode`, `claims.claimed_amount`, `claims.approved_amount`, and `claim_evidence.storage_path`. | **Unverified.** If missing, claim creation or evidence cataloging fails with column-missing database errors. |
 | **pHash / Fraud Schema** | `migration_v3_phash.sql` adds `claim_evidence.phash`, `idx_claim_evidence_phash`, `claim_fraud_analyses` table, and `claim_ai_analysis` fraud fields. | **Unverified.** If missing, `fraud_analysis_service.py` explicitly raises `PhashColumnMissingError` upon photo upload. |
 | **Policy Seed** | `seed_demo.sql` creates `agent_policies` & `policies` tables, adds RLS, and seeds `DEMO-POL-001..003` assigned to `<AGENT_EMAIL_PLACEHOLDER>`. | **Unverified.** `claims.py:57-87` strictly mandates that `agent_policies` maps the submitted policy to an existing agent in `public.profiles`. |
-| **Storage Bucket** | Backend defaults to `SUPABASE_STORAGE_BUCKET="claim-evidence"`. Files are saved under `evidence/{category}/{user_id}/...`. Direct public URLs are constructed (`storage.py:68`) and fetched by AI runner (`ai_runner.py:202`). | **Unverified.** The `claim-evidence` bucket must exist and must be configured as **Public** (or allow public read) for background damage inference to download images. |
+| **Storage Bucket** | Backend defaults to `SUPABASE_STORAGE_BUCKET="claim-evidence"`. Files are saved under `evidence/{category}/{user_id}/...`. The backend uses service-role storage operations and time-limited signed URLs where needed. | **Unverified.** The `claim-evidence` bucket must exist as a **Private** bucket, with backend credentials configured for required storage operations. |
 | **Backend PostgREST Client** | `app/db/supabase.py` initializes `AsyncSupabaseDB` with `SUPABASE_SERVICE_ROLE_KEY`. Queries bypass Postgres Row Level Security (RLS). | Remote RLS policies do not restrict the FastAPI backend, but anon/client access requires explicit policies. |
 | **Backend JWT Secret** | `app/core/security.py` signs and verifies application session tokens and email action links using `JWT_SECRET`. | **Separate from Supabase JWT secret.** The backend JWT secret must be an independently generated random 256-bit key. |
 
@@ -53,8 +53,8 @@ flowchart TD
 ### Step 3.2: Configure Storage (`claim-evidence`)
 1. Go to **Storage** > **New Bucket**.
 2. Set **Bucket Name**: `claim-evidence` (exact match with `SUPABASE_STORAGE_BUCKET` in `.env.example`).
-3. Set **Public Bucket**: **Enabled** (`ON`).
-   > **Why Public?** In `app/api/v1/storage.py:68`, public URLs (`/storage/v1/object/public/...`) are generated and handed to `app/services/ai_runner.py:24`, which downloads the image using a standard HTTP request. If the bucket is private and lacks signed read URLs, AI assessment fails to retrieve evidence photos.
+3. Set **Public Bucket**: **Disabled** (`OFF`). Claim evidence must not be publicly readable.
+   > **How access works:** The backend generates signed upload URLs and downloads evidence for AI assessment through its service-role storage client. Signed read URLs are time-limited. Never expose signed URL tokens in logs.
 4. Set **File size limit**: `50MB` (matches `MAX_FILE_SIZE_BYTES` in `storage.py:25`).
 5. Set **Allowed MIME types**: `image/jpeg, image/png, image/webp, video/mp4, video/quicktime`.
 
@@ -435,7 +435,7 @@ WHERE claim_id = '<paste-claim-B-uuid>';
 Before declaring the deployment ready for the frontend demonstration, verify every box:
 
 - [ ] **Supabase Health:** Remote project is active in target region.
-- [ ] **Storage Bucket:** `claim-evidence` bucket exists, is marked **Public**, and permits 50MB file sizes.
+- [ ] **Storage Bucket:** `claim-evidence` exists as a **Private** bucket, permits 50MB file sizes, and is accessible to the backend through configured storage credentials.
 - [ ] **SQL Schemas:** `schema.sql`, `migration_v2.sql`, and `migration_v3_phash.sql` applied.
 - [ ] **Schema Check:** Verification query confirms 6 core tables and 7 critical columns.
 - [ ] **Secret Hygiene:** `insurance-pro/backend/.env` created from `.env.example`; `.env` is confirmed in `.gitignore`.
