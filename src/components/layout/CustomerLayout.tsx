@@ -7,9 +7,12 @@ import { Badge } from '../ui/Badge';
 import { LogOut, Plus, ChevronDown } from 'lucide-react';
 import { TopBar } from './TopBar';
 import { gsap, useGSAP, animateFadeIn, animateStagger, isReducedMotion } from '../../lib/gsap';
+import { ClaimPilotOnboarding } from '../onboarding/ClaimPilotOnboarding';
+import { useOnboarding } from '../../store/onboardingStore';
 
 export const CustomerLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { checkAndTriggerFirstTime } = useOnboarding();
   const navigate = useNavigate();
   const location = useLocation();
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -24,6 +27,12 @@ export const CustomerLayout: React.FC = () => {
   useEffect(() => {
     claimsApi.getClaims().then(setClaims);
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      checkAndTriggerFirstTime(user.id, user.email);
+    }
+  }, [user, checkAndTriggerFirstTime]);
 
   useGSAP(() => {
     if (isHome) {
@@ -141,6 +150,7 @@ export const CustomerLayout: React.FC = () => {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '1rem' }}>
+      <ClaimPilotOnboarding />
       <div style={{
         display: 'flex',
         flexDirection: 'column',

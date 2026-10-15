@@ -2,11 +2,14 @@ import React from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../store/authStore';
 import { useTheme } from '../../store/themeStore';
-import { LogOut } from 'lucide-react';
+import { LogOut, HelpCircle } from 'lucide-react';
+import { ClaimPilotOnboarding } from '../onboarding/ClaimPilotOnboarding';
+import { useOnboarding } from '../../store/onboardingStore';
 import '../../agent.css';
 
 export const AgentLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { openOnboarding } = useOnboarding();
   const { } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,6 +21,7 @@ export const AgentLayout: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', padding: '1rem' }}>
+      <ClaimPilotOnboarding />
       <div className="agent-layout" style={{
         display: 'flex',
         flexDirection: 'column',
@@ -56,6 +60,16 @@ export const AgentLayout: React.FC = () => {
 
             {/* Right side */}
             <div className="flex items-center gap-md">
+              <button
+                onClick={() => openOnboarding(1)}
+                className="nav-link flex items-center gap-xs"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0.5rem' }}
+                title="Interactive Claim Tutorial"
+              >
+                <HelpCircle size={14} />
+                <span>How it works</span>
+              </button>
+
               <span className="text-sm text-muted">{user?.name}</span>
 
               <button

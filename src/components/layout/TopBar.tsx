@@ -1,6 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { HelpCircle } from 'lucide-react';
+import { useOnboarding } from '../../store/onboardingStore';
+
 export const TopBar: React.FC = () => {
+  const { openOnboarding } = useOnboarding();
+
   return (
     <div className="topbar">
       {/* Logo */}
@@ -12,7 +17,7 @@ export const TopBar: React.FC = () => {
         ClaimPilot AI
       </span>
 
-      {/* Home link — centred */}
+      {/* Nav links — centred */}
       <nav style={{
         position: 'absolute',
         left: '50%',
@@ -23,6 +28,22 @@ export const TopBar: React.FC = () => {
         </Link>
       </nav>
 
+      {/* How it works — super right */}
+      <button
+        onClick={() => openOnboarding(1)}
+        className="topbar-nav-btn"
+        title="Interactive Claim Tutorial"
+        style={{
+          marginLeft: 'auto',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.35rem',
+        }}
+      >
+        <HelpCircle size={15} />
+        <span>How it works</span>
+      </button>
     </div>
   );
 };
