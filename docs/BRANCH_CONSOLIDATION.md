@@ -55,7 +55,7 @@ The existing test suites are present in `insurance-pro/backend/tests/`, includin
 
 ## Validation result (17 October 2026)
 
-GitHub Actions executed the backend/schema regression suite successfully: **146 passed, 10 warnings in 2.71 seconds** (PR #2). The tests run with dummy credentials and mocked dependencies, so they validate application regressions and migration contracts but do not count as a live Auth/storage/claim end-to-end run. The workflow was subsequently bumped to Node 24-compatible action versions; that follow-up run is being validated separately.
+GitHub Actions executed the backend/schema regression suite successfully: **146 passed, 10 warnings in 2.71 seconds** (PR #2). The tests run with dummy credentials and mocked dependencies, so they validate application regressions and migration contracts but do not count as a live Auth/storage/claim end-to-end run. The workflow was subsequently bumped to `actions/checkout@v7` and `actions/setup-python@v7`; that updated workflow also passed the same 146-test suite.
 
 ## Safe integration procedure
 
