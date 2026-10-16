@@ -34,6 +34,11 @@ def test_core_schema_has_every_table_used_by_the_backend():
 
 def test_claim_schema_supports_statuses_and_fields_written_by_backend():
     sql = _read_migration(CORE_SCHEMA)
+    api_schema = (REPO_ROOT / "insurance-pro" / "backend" / "app" / "schemas" / "claim.py").read_text(encoding="utf-8")
+    for shared_status in ("pending_review", "under_review", "flagged", "manual_review", "action_required", "agent_approved", "settlement_accepted", "disputed", "rejected"):
+        assert f"{shared_status} = \\"{shared_status}\\"" in api_schema, (
+            f"ClaimStatus API enum is missing database status {shared_status}"
+        )
     for status in (
         "pending_review",
         "under_review",
