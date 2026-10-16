@@ -1,50 +1,37 @@
 # ClaimPilot AI — Migration Status
 
-**Status: PARTIAL MIGRATION SNAPSHOT — NOT READY TO DEPLOY**
+**Status: MIGRATED SNAPSHOT — VALIDATION AND SELECTIVE FEATURE PORTING STILL REQUIRED**
 
 Destination: https://github.com/Abhiram-Mukkamala/Claimpilot (private)
 
 ## Snapshot source
 
 - Code and documentation snapshot: `test/e2e-demo-smoke` at `265c3934674a0070d7314af064d4a62a1acd3fe0`.
-- The current `claimpilot` branch is also divergent. GitHub comparison reported one unique commit on `claimpilot`, changing only `README.md`; the README in this repository was taken from the current `claimpilot` branch so that documentation update is retained.
-- The original source repository and all its branches remain unchanged: https://github.com/shreyasshah707/ClaimPilot
-- This is a single-branch snapshot, **not** a full Git history mirror. Source commits, tags, and other remote branches were not copied. The original repository remains the history/backup reference.
+- The current `claimpilot` branch had one unique commit in the comparison, changing only `README.md`; the current `claimpilot` README is used in this repository.
+- The original repository and all source branches remain unchanged: https://github.com/shreyasshah707/ClaimPilot
+- This is a single-branch snapshot, **not** a full Git-history mirror. Source commits, tags and all source branches were not copied into `main`; the original repository remains the history/backup reference.
+- The destination also contains the separate `claimpilotayaan` branch at commit `f47c5b67ccaaad751cc408b48fb7417529d7fca2`. It contains Ayaan's onboarding/about snapshot and was not modified in this migration. Keep it until its unique work is reviewed and accounted for.
 
-## Included
+## Included in main
 
 - 206 text/source/documentation file paths from the selected E2E branch.
-- The newer README from `claimpilot`.
-- Both `hero.png` assets restored byte-for-byte from the source branch; source and destination blob SHA match.
-- `docs/BRANCH_CONSOLIDATION.md`, which tracks feature work that still needs review/porting.
+- The newer README from current `claimpilot`.
+- Both original `hero.png` assets, byte-for-byte restored from the source branch; source and destination blob SHA matches.
+- Both model weights: `rt-detr.pt` and `yolov11m.pt`. The migration API could not return their binary content, but the same exact Git blob objects were already present in the destination's `claimpilotayaan` branch and were referenced into `main`.
+- `docs/BRANCH_CONSOLIDATION.md`, tracking feature work that still needs review/porting.
 - Only `.env.example` templates; no real `.env` file was migrated.
-
-## Required model weights not included
-
-The migration interface cannot transfer these binary model blobs:
-
-- `insurance-pro/backend/app/models/weights/rt-detr.pt` (66,248,189 bytes)
-- `insurance-pro/backend/app/models/weights/yolov11m.pt` (40,511,404 bytes)
-
-Retrieve them from the original public release-candidate branch and place them at the exact same paths:
-
-- https://raw.githubusercontent.com/shreyasshah707/ClaimPilot/test/e2e-demo-smoke/insurance-pro/backend/app/models/weights/rt-detr.pt
-- https://raw.githubusercontent.com/shreyasshah707/ClaimPilot/test/e2e-demo-smoke/insurance-pro/backend/app/models/weights/yolov11m.pt
-
-AI inference has not been validated without these files.
 
 ## Local security work not included
 
-Previously reported uncommitted Phase 1 security changes in local worktrees `C:\Projects\claimbot AI\wt-impl-phase1` and `ClaimPilot-Final` were not present as remote commits in the inspected tree. Those modifications were not copied into this migration. Review and apply them deliberately from the local worktree; preserve its staged/unstaged work and backups. Do not replace files wholesale without comparing the patch.
+Previously reported uncommitted Phase 1 security changes in local worktrees `C:\Projects\claimbot AI\wt-impl-phase1` and `ClaimPilot-Final` were not present as remote commits in the inspected source tree. Those modifications were not copied into this migration. Review and apply them deliberately from the local worktree; preserve staged/unstaged work and backups. Do not replace files wholesale without comparing the patch.
 
 ## Other branch work not yet integrated
 
-The branch-specific changes listed in `docs/BRANCH_CONSOLIDATION.md` remain in the original repo and were not silently merged into this snapshot. Review and selectively port them with focused tests.
+The branch-specific changes listed in `docs/BRANCH_CONSOLIDATION.md` remain in the original repo (and the separate destination branch noted above where applicable) and were not silently merged into this snapshot. Review and selectively port them with focused tests.
 
 ## Validation status
 
-- File tree created and verified on destination `main`.
-- Source-file blob hashes were checked when copying text blobs.
-- Original PNG blobs restored and hash-verified.
+- Destination `main` contains the selected release-candidate tree, with the latest README and migration documentation.
+- Source-file blob hashes were checked when copying text blobs; both PNG assets and both model-weight blob hashes match the source objects.
 - **Tests/build were not run as part of this migration.**
-- The two model weights are missing and branch work/local security changes remain to be reviewed. Do not deploy this repository as a release candidate until those blockers are resolved and end-to-end tests pass.
+- Other feature-branch work and the separate local security changes still need review. Do not declare the release ready until those items are resolved and the end-to-end workflow passes.

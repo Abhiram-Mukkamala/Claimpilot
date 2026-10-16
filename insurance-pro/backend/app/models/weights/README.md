@@ -1,10 +1,8 @@
-# Required model weights not included in this snapshot
+# Model weights
 
-This folder's model binaries were omitted because the connected migration interface cannot transfer binary Git blobs.
+Both model-weight blobs are present in the release snapshot:
 
-Restore these exact files from the source release-candidate branch before running AI inference:
+- `rt-detr.pt` — SHA `17733554692bcd44570ab2347a21d73d82591f42`
+- `yolov11m.pt` — SHA `578f718b04478638652668ba4411aa717405bb9b`
 
-- `rt-detr.pt`: https://raw.githubusercontent.com/shreyasshah707/ClaimPilot/test/e2e-demo-smoke/insurance-pro/backend/app/models/weights/rt-detr.pt
-- `yolov11m.pt`: https://raw.githubusercontent.com/shreyasshah707/ClaimPilot/test/e2e-demo-smoke/insurance-pro/backend/app/models/weights/yolov11m.pt
-
-Do not consider AI inference validated until the weights are restored and the corresponding tests are run.
+They were referenced from Git objects already available in the destination repository's `claimpilotayaan` branch. The files were not re-uploaded by the migration script. After cloning, verify that both files are present at this directory before running inference.
