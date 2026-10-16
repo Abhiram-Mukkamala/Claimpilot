@@ -274,6 +274,8 @@ def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, env
     assert not hasattr(result, "otp_code")
     assert "otp_code" not in result.model_dump()
     assert inserted[0]["otp_code"] != "184205"
+    assert inserted[0]["purpose"] == "login"
+    assert inserted[0]["user_id"] == "user-123"
     assert len(inserted[0]["otp_code"]) == 6
     assert inserted[0]["otp_code"].isdigit()
     assert background_tasks.tasks[0].args[1] == "184205"
