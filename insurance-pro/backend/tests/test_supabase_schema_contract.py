@@ -7,7 +7,7 @@ MIGRATIONS = REPO_ROOT / "supabase" / "migrations"
 CORE_SCHEMA = MIGRATIONS / "20261016194212_claimpilot_core_schema.sql"
 SETTLEMENT_COMPAT = MIGRATIONS / "20261016194327_claim_settlement_offer_compat.sql"
 FK_INDEXES = MIGRATIONS / "20261016195154_claimpilot_fk_indexes.sql"
-COST_ESTIMATE_BASIS = MIGRATIONS / "20261016210000_cost_estimate_basis.sql"
+COST_ESTIMATE_BASIS = MIGRATIONS / "20261016203544_cost_estimate_basis.sql"
 
 
 def _read_migration(path: Path) -> str:
