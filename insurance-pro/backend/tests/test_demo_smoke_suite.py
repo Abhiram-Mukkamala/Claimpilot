@@ -359,6 +359,8 @@ def test_stage_a_otp_verification_issues_valid_jwt(test_app, mock_db):
         "id": "ch-9001",
         "identifier": "customer101@claimpilot.test",
         "channel": "email",
+        "purpose": "login",
+        "user_id": "cust-101",
         "otp_code": tag,
         "is_verified": False,
         "attempts": 0,
