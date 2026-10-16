@@ -1,0 +1,544 @@
+/* ============================================================
+   CLAIMPILOT AI — ABOUT PAGE STYLES (about.css)
+   Clean Monochrome Glassmorphism (Black & White Theme)
+   ============================================================ */
+
+/* ── Container & Global Scroll Area ── */
+.about-page-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 49;
+  background-color: transparent;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Sections ── */
+.about-section {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 7rem 2rem 5rem 2rem;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.about-content {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+
+#who-are-we .about-content {
+  max-width: 1340px;
+}
+
+#who-are-we .glass-header-panel {
+  max-width: 960px;
+}
+
+/* ── Header Panels (Description Context) ── */
+.glass-header-panel {
+  text-align: center;
+  max-width: 820px;
+  width: 100%;
+  margin-bottom: 2.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding: 2.25rem 2.5rem;
+  border-radius: 20px;
+  background: rgba(16, 16, 24, 0.28);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* ── Tags (Rectangle with Round Corners) ── */
+.about-pill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 1.25rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Typography ── */
+.about-hero-title {
+  font-size: clamp(2.75rem, 6vw, 4.25rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin-bottom: 1.25rem;
+  color: #FFFFFF;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
+}
+
+.about-section-title {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  margin-bottom: 1rem;
+  color: #FFFFFF;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+}
+
+.about-hero-desc,
+.about-section-desc {
+  font-size: clamp(1rem, 1.8vw, 1.125rem);
+  line-height: 1.65;
+  color: rgba(240, 240, 245, 0.75);
+  font-weight: 400;
+  max-width: 660px;
+  text-align: center;
+  margin: 0 auto;
+}
+
+/* ============================================================
+   1. HERO WORKFLOW PIPELINE
+   ============================================================ */
+.workflow-pipeline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 900px;
+  padding: 1.15rem 1.5rem;
+  border-radius: 20px;
+  background: rgba(16, 16, 24, 0.35);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.flow-node {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.flow-node:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+  transform: translateY(-1px);
+}
+
+.flow-node.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #FFFFFF;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 20px rgba(255, 255, 255, 0.08);
+}
+
+.flow-arrow {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+/* ============================================================
+   2. THE PROBLEM (5 CARDS GRID)
+   ============================================================ */
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1rem;
+  width: 100%;
+  margin-bottom: 2.5rem;
+}
+
+.problem-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 1.35rem 1.15rem;
+  border-radius: 20px;
+  background: rgba(16, 16, 24, 0.32);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.25s ease;
+}
+
+.problem-card:hover {
+  transform: translateY(-2px);
+  background: rgba(24, 24, 34, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.problem-card .card-icon {
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.85rem;
+  flex-shrink: 0;
+}
+
+.problem-card h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-bottom: 0.45rem;
+  letter-spacing: -0.015em;
+}
+
+.problem-card p {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: rgba(220, 220, 230, 0.65);
+  margin: 0;
+}
+
+.problem-bridge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1.75rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.25s ease;
+}
+
+.problem-bridge:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   3. HOW IT WORKS (4 CARDS GRID)
+   ============================================================ */
+.how-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.how-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.75rem 1.4rem;
+  border-radius: 24px;
+  background: rgba(16, 16, 24, 0.32);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  text-align: left;
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+.how-card:hover {
+  transform: translateY(-2px);
+  background: rgba(24, 24, 34, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.how-card.highlight {
+  background: rgba(22, 22, 32, 0.45);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.card-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.15rem;
+}
+
+.step-number {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.step-tag {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.step-tag.active-tag {
+  background: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.step-icon {
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: auto;
+  padding-top: 1.25rem;
+}
+
+.step-icon.active-icon {
+  color: #FFFFFF;
+}
+
+.how-card h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.65rem;
+  line-height: 1.35;
+}
+
+.how-card p {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: rgba(220, 220, 230, 0.7);
+  margin: 0;
+}
+
+/* ============================================================
+   4. WHO ARE WE (TEAM CARDS)
+   ============================================================ */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.team-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2.25rem 1.4rem;
+  border-radius: 24px;
+  background: rgba(16, 16, 24, 0.32);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.25s ease;
+}
+
+.team-card:hover {
+  transform: translateY(-2px);
+  background: rgba(24, 24, 34, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.team-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.15rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.team-card h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  letter-spacing: -0.015em;
+  margin-bottom: 0.35rem;
+}
+
+.team-role {
+  font-size: 0.8125rem;
+  color: #60A5FA;
+  font-weight: 500;
+  line-height: 1.45;
+  margin-bottom: 0.75rem;
+  text-shadow: 0 0 16px rgba(96, 165, 250, 0.25);
+}
+
+.team-role.empty-role {
+  margin-bottom: 0;
+}
+
+.team-desc {
+  font-size: 0.77rem;
+  line-height: 1.5;
+  color: rgba(220, 220, 230, 0.65);
+  margin-top: 0.25rem;
+  text-align: center;
+}
+
+/* ============================================================
+   5. FINAL CTA
+   ============================================================ */
+.cta-card {
+  width: 100%;
+  max-width: 760px;
+  padding: 3.5rem 2.5rem;
+  border-radius: 32px;
+  background: rgba(16, 16, 24, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cta-title {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: #FFFFFF;
+  margin-bottom: 1rem;
+  line-height: 1.15;
+}
+
+.cta-desc {
+  font-size: clamp(1rem, 1.8vw, 1.125rem);
+  color: rgba(240, 240, 245, 0.75);
+  max-width: 520px;
+  line-height: 1.6;
+  margin-bottom: 2.25rem;
+}
+
+.cta-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cta-btn {
+  padding: 0.85rem 2rem;
+  border-radius: 12px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ============================================================
+   RESPONSIVENESS
+   ============================================================ */
+@media (max-width: 1024px) {
+  .problem-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .how-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .team-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .about-section {
+    padding: 5.5rem 1.25rem 4rem 1.25rem;
+  }
+
+  .workflow-pipeline {
+    flex-direction: column;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 360px;
+    gap: 0.5rem;
+  }
+
+  .flow-node {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .flow-arrow {
+    transform: rotate(90deg);
+  }
+
+  .problem-grid {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+  }
+
+  .how-grid {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+  }
+
+  .team-grid {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+  }
+
+  .cta-card {
+    padding: 2.5rem 1.5rem;
+  }
+}

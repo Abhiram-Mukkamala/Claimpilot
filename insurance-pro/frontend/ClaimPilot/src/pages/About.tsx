@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/authStore';
 import {
@@ -17,11 +17,13 @@ import {
   Layers
 } from 'lucide-react';
 import { gsap, useGSAP, ScrollTrigger, isReducedMotion } from '../lib/gsap';
+import './about.css';
 
 interface AboutProps {
   onReturn?: () => void;
   isVisible?: boolean;
   onSectionChange?: (sectionId: string) => void;
+  showNav?: boolean;
 }
 
 export interface TeamMember {
@@ -37,38 +39,46 @@ const TEAM_MEMBERS: TeamMember[] = [
     id: 'as',
     initials: 'AS',
     name: 'Ayaan Shaikh',
-    role: 'Frontend Developer · UI/UX',
-    description: "Designed and built ClaimPilot's frontend and user experience. Researched 2D damage visualization to map detected damage accurately onto vehicle models.",
+    role: 'Frontend Developer · UI/UX & 2D Damage Visualization R&D',
+    description: "Built ClaimPilot's frontend and user experience while researching precise 2D vehicle damage visualization and accurate damage mapping onto vehicle models.",
   },
   {
     id: 'ss',
     initials: 'SS',
     name: 'Shreyas Shah',
     role: 'Computer Vision Engineer',
-    description: 'Fine-tuned YOLOv11m and RT\u2011DETR\u2011L on CarDD to detect six damage categories. Combined SAM2, depth estimation and 3D reconstruction to measure damage area, depth, volume and crease angle.',
+    description: ' Fine-tuned YOLOv11m and RT-DETR-L on CarDD for six damage categories. Integrated SAM2, depth estimation, DSINE, COLMAP and Open3D to derive physical damage measurements, including area, depth, volume and crease angle. ',
   },
   {
     id: 'rs',
     initials: 'RS',
     name: 'Rahul Sutar',
     role: 'Backend & Systems Engineer',
-    description: "Architected ClaimPilot's FastAPI backend and Supabase database, with secure role-based login for customers and agents. Connected the frontend, storage and AI inference into one working claim flow.",
+    description: "Architected ClaimPilot's backend and database using FastAPI and Supabase, implementing secure dual-role authentication and seamless frontend-to-backend integration.",
   },
   {
     id: 'am',
     initials: 'AM',
     name: 'Abhiram Mukkamala',
     role: 'Product Manager & Systems Integration',
-    description: 'Led product direction and integrated the frontend, backend and ML models into one pipeline. Designed the cross-claim perceptual-hash engine that detects reused and duplicate claim photos.',
+    description: 'Directed ClaimPilot’s product development and integrated its frontend, FastAPI backend, and ML models into a unified pipeline. Designed a cross-claim perceptual hashing system to detect reused and duplicate claim images.',
   },
 ];
 
-export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSectionChange }) => {
+export const About: React.FC<AboutProps> = ({
+  onReturn,
+  isVisible = true,
+  onSectionChange,
+  showNav = true
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
-
   const handleReturn = onReturn || (() => navigate(user ? (user.role === 'agent' ? '/agent' : '/customer') : '/login'));
+  const [internalActiveSection, setInternalActiveSection] = useState('hero');
+
+  const navItems = ['hero', 'problem', 'solution', 'team'];
+  const activeIndex = Math.max(0, navItems.indexOf(internalActiveSection));
 
   // Track active section for navbar pill highlight
   useEffect(() => {
@@ -78,7 +88,11 @@ export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSect
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            onSectionChange?.(entry.target.id);
+            // Map section IDs to navbar items ('solution' -> 'How it Works', 'team' -> 'Who are We')
+            const id = entry.target.id;
+            const mappedId = id === 'how-it-works' ? 'solution' : (id === 'who-are-we' ? 'team' : id);
+            setInternalActiveSection(mappedId);
+            onSectionChange?.(mappedId);
           }
         });
       },
@@ -141,14 +155,97 @@ export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSect
   );
 
   return (
-    <div
-      ref={containerRef}
-      className="about-page-container"
-      style={{
-        opacity: isVisible ? 1 : 0,
-        pointerEvents: isVisible ? 'auto' : 'none',
-      }}
-    >
+    <>
+      {showNav && isVisible && (
+        <div
+          className="glass-transition-layer"
+          style={{
+            width: '900px',
+            maxWidth: 'calc(100vw - 3rem)',
+            height: '64px',
+            top: '24px',
+            borderRadius: '32px',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            pointerEvents: 'auto',
+            zIndex: 50,
+          }}
+        >
+          <div
+            className="glass-nav-bar"
+            style={{
+              opacity: 1,
+              pointerEvents: 'auto',
+              justifyContent: 'space-between',
+              padding: '0 2.5rem',
+            }}
+          >
+            <div className="glass-nav-links">
+              {[
+                { label: 'ClaimPilot', id: 'hero' },
+                { label: 'The Problem', id: 'problem' },
+                { label: 'How it Works', id: 'solution' },
+                { label: 'Who are We', id: 'team' },
+              ].map(({ label, id }, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    if (id === 'hero') {
+                      containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                    } else {
+                      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }}
+                  style={{
+                    width: '100px',
+                    textAlign: 'center',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    color: activeIndex === i ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <div
+                className="glass-nav-pill"
+                style={{
+                  left: `calc(${activeIndex * 140}px)`,
+                  width: '100px',
+                  transform: 'translateX(0px)',
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleReturn}
+              className="btn btn-primary"
+              style={{
+                padding: '0.5rem 1rem',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              GET STARTED
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div
+        ref={containerRef}
+        className="about-page-container"
+        style={{
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? 'auto' : 'none',
+        }}
+      >
       {/* SECTION 1: HERO */}
       <section id="hero" className="about-section">
         <div className="about-content">
@@ -242,6 +339,8 @@ export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSect
 
       {/* SECTION 3: HOW IT WORKS */}
       <section id="how-it-works" className="about-section">
+        {/* Alias anchor for floating navbar */}
+        <span id="solution" style={{ position: 'absolute', top: 0, pointerEvents: 'none' }} />
         <div className="about-content">
           <div className="glass-header-panel">
             <div className="about-pill-tag">
@@ -302,9 +401,10 @@ export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSect
 
       {/* SECTION 4: WHO ARE WE */}
       <section id="who-are-we" className="about-section">
+        {/* Alias anchor for floating navbar */}
+        <span id="team" style={{ position: 'absolute', top: 0, pointerEvents: 'none' }} />
         <div className="about-content">
           <div className="glass-header-panel">
-
             <h2 className="about-section-title">Who Are We</h2>
 
             <p className="about-section-desc" style={{ fontSize: '16px' }}>
@@ -353,5 +453,6 @@ export const About: React.FC<AboutProps> = ({ onReturn, isVisible = true, onSect
         </div>
       </section>
     </div>
+    </>
   );
 };

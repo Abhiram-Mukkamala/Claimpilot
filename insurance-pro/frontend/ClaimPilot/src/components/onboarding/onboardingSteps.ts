@@ -1,59 +1,45 @@
-export interface OnboardingStepItem {
-  step: number;
-  id: string;
-  tag: string;
+export interface OnboardingStepData {
+  id: number;
+  badge: string;
   title: string;
   description: string;
-  nextButtonText?: string;
 }
 
-export const ONBOARDING_STEPS: OnboardingStepItem[] = [
+export const ONBOARDING_STEPS: OnboardingStepData[] = [
   {
-    step: 1,
-    id: 'welcome',
-    tag: 'Welcome',
+    id: 1,
+    badge: 'Step 1 of 6 · Overview',
     title: 'Welcome to ClaimPilot',
     description: "Let's walk through how easy it is to file and track a claim.",
-    nextButtonText: 'Next →'
   },
   {
-    step: 2,
-    id: 'start-claim',
-    tag: 'Step 1 of 5',
+    id: 2,
+    badge: 'Step 2 of 6 · Incident Info',
     title: 'Start a new claim',
     description: 'Choose the option to start a new claim and provide the basic details about your incident.',
-    nextButtonText: 'Next →'
   },
   {
-    step: 3,
-    id: 'upload-damage',
-    tag: 'Step 2 of 5',
+    id: 3,
+    badge: 'Step 3 of 6 · Evidence',
     title: 'Upload photos or video',
     description: 'Add clear photos or a video of the damaged area. ClaimPilot uses this media to help analyze the damage.',
-    nextButtonText: 'Next →'
   },
   {
-    step: 4,
-    id: 'review-damage',
-    tag: 'Step 3 of 5',
+    id: 4,
+    badge: 'Step 4 of 6 · AI Vision',
     title: 'Review the detected damage',
     description: 'ClaimPilot analyzes the submitted media and presents the detected damage for review.',
-    nextButtonText: 'Next →'
   },
   {
-    step: 5,
-    id: 'submit-claim',
-    tag: 'Step 4 of 5',
+    id: 5,
+    badge: 'Step 5 of 6 · Final Review',
     title: 'Review and submit',
     description: 'Confirm your claim details and submit when everything looks correct.',
-    nextButtonText: 'Next →'
   },
   {
-    step: 6,
-    id: 'track-claim',
-    tag: 'Step 5 of 5',
+    id: 6,
+    badge: 'Step 6 of 6 · Complete',
     title: 'Track everything in one place',
     description: 'Once submitted, you can monitor your claim status directly from your ClaimPilot dashboard.',
-    nextButtonText: 'Get started'
-  }
+  },
 ];

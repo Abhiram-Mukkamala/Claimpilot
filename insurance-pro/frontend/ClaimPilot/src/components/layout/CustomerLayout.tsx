@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth, authStore } from '../../store/authStore';
+import { useAuth } from '../../store/authStore';
 import { claimsApi } from '../../services/claimsApi';
 import type { Claim } from '../../types/claim';
 import { Badge } from '../ui/Badge';
@@ -8,17 +8,14 @@ import { LogOut, Plus, ChevronDown } from 'lucide-react';
 import { TopBar } from './TopBar';
 import { gsap, useGSAP, animateFadeIn, animateStagger, isReducedMotion } from '../../lib/gsap';
 import { ClaimPilotOnboarding } from '../onboarding/ClaimPilotOnboarding';
-import { hasCompletedOnboarding, markOnboardingCompleted } from '../onboarding/onboardingStorage';
+import { useOnboarding, onboardingStore } from '../../store/onboardingStore';
 
 export const CustomerLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { openOnboarding } = useOnboarding();
   const navigate = useNavigate();
   const location = useLocation();
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
-    const currentUser = authStore.getUser();
-    return !hasCompletedOnboarding(currentUser?.email);
-  });
   const homeRef = useRef<HTMLDivElement>(null);
   const claimsListRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLDivElement>(null);
@@ -28,12 +25,10 @@ export const CustomerLayout: React.FC = () => {
   const [claimsMinimized, setClaimsMinimized] = useState(false);
 
   useEffect(() => {
-    if (user?.email) {
-      if (!hasCompletedOnboarding(user.email)) {
-        setIsOnboardingOpen(true);
-      }
+    if (user?.id || user?.email) {
+      onboardingStore.checkAndTriggerFirstTime(user?.id, user?.email);
     }
-  }, [user?.email]);
+  }, [user?.id, user?.email]);
 
   useEffect(() => {
     claimsApi.getClaims().then(setClaims);
@@ -147,11 +142,6 @@ export const CustomerLayout: React.FC = () => {
     navigate('/login');
   };
 
-  const handleCloseOnboarding = () => {
-    setIsOnboardingOpen(false);
-    markOnboardingCompleted(user?.email);
-  };
-
   const getBadgeVariant = (status: string): 'success' | 'warning' | 'danger' | 'neutral' => {
     if (status === 'Approved') return 'success';
     if (status === 'Flagged' || status === 'Rejected') return 'danger';
@@ -172,7 +162,7 @@ export const CustomerLayout: React.FC = () => {
         WebkitBackdropFilter: 'blur(5px) saturate(120%)',
         boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.14)'
       }}>
-        <TopBar onOpenHowItWorks={() => setIsOnboardingOpen(true)} />
+        <TopBar onOpenHowItWorks={() => openOnboarding(1)} />
         <div style={{ display: 'flex', flex: 1, height: 'calc(100vh - 72px - 2rem)', overflow: 'hidden', position: 'relative' }}>
           {/* ── Sidebar ── */}
           <aside className="sidebar">
@@ -376,7 +366,7 @@ export const CustomerLayout: React.FC = () => {
           </main>
         </div>
       </div>
-      <ClaimPilotOnboarding isOpen={isOnboardingOpen} onClose={handleCloseOnboarding} />
+      <ClaimPilotOnboarding />
     </div>
   );
 };

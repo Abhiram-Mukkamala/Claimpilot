@@ -1,176 +1,90 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, ArrowRight, ArrowLeft, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { useOnboarding } from '../../store/onboardingStore';
 import { ONBOARDING_STEPS } from './onboardingSteps';
-import { OnboardingStepVisual } from './OnboardingStepVisual';
-import { useGSAP, gsap, isReducedMotion } from '../../lib/gsap';
+import { OnboardingStep } from './OnboardingStep';
+import { gsap, useGSAP, isReducedMotion } from '../../lib/gsap';
+import { X, ArrowRight, ArrowLeft, Check, Sparkles } from 'lucide-react';
 import './onboarding.css';
 
-interface ClaimPilotOnboardingProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export const ClaimPilotOnboarding: React.FC<ClaimPilotOnboardingProps> = ({
-  isOpen,
-  onClose,
-}) => {
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const directionRef = useRef<'forward' | 'backward'>('forward');
+export const ClaimPilotOnboarding: React.FC = () => {
+  const {
+    isOpen,
+    currentStep,
+    direction,
+    nextStep,
+    prevStep,
+    setStep,
+    skipOnboarding,
+    completeOnboarding,
+  } = useOnboarding();
 
   const overlayRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
   const stepContainerRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
-  const descRef = useRef<HTMLParagraphElement>(null);
 
-  const stepData = ONBOARDING_STEPS[currentStepIndex] || ONBOARDING_STEPS[0];
-  const isFirstStep = currentStepIndex === 0;
-  const isLastStep = currentStepIndex === ONBOARDING_STEPS.length - 1;
+  const stepData = ONBOARDING_STEPS.find((s) => s.id === currentStep) || ONBOARDING_STEPS[0];
+  const isFinalStep = currentStep === ONBOARDING_STEPS.length;
 
-  // Reset to first step whenever reopened
-  useEffect(() => {
-    if (isOpen) {
-      setCurrentStepIndex(0);
-      setIsTransitioning(false);
-    }
-  }, [isOpen]);
-
-  // Entrance animation when modal opens
-  useGSAP(() => {
-    if (!isOpen || !overlayRef.current || !dialogRef.current) return;
-
-    if (isReducedMotion()) {
-      gsap.set(overlayRef.current, { opacity: 1 });
-      gsap.set(dialogRef.current, { opacity: 1, scale: 1, y: 0 });
-      return;
-    }
-
-    const tl = gsap.timeline();
-    tl.fromTo(
-      overlayRef.current,
-      { opacity: 0 },
-      { opacity: 1, duration: 0.28, ease: 'power2.out' }
-    );
-    tl.fromTo(
-      dialogRef.current,
-      { opacity: 0, scale: 0.95, y: 16 },
-      { opacity: 1, scale: 1, y: 0, duration: 0.38, ease: 'power2.out' },
-      '-=0.15'
-    );
-  }, { dependencies: [isOpen] });
-
-  // Step transition animation handler
-  const transitionToStep = useCallback((targetIndex: number) => {
-    if (targetIndex === currentStepIndex || isTransitioning) return;
-    if (targetIndex < 0 || targetIndex >= ONBOARDING_STEPS.length) return;
-
-    const direction = targetIndex > currentStepIndex ? 'forward' : 'backward';
-    directionRef.current = direction;
-
-    if (isReducedMotion() || !stepContainerRef.current) {
-      setCurrentStepIndex(targetIndex);
-      return;
-    }
-
-    setIsTransitioning(true);
-    const container = stepContainerRef.current;
-    const exitX = direction === 'forward' ? -24 : 24;
-    const enterX = direction === 'forward' ? 24 : -24;
-
-    const tl = gsap.timeline({
-      onComplete: () => {
-        setIsTransitioning(false);
-      },
-    });
-
-    // Animate out current step content
-    tl.to(container, {
-      opacity: 0,
-      x: exitX,
-      duration: 0.2,
-      ease: 'power2.in',
-      onComplete: () => {
-        setCurrentStepIndex(targetIndex);
-        gsap.set(container, { x: enterX, opacity: 0 });
-      },
-    });
-
-    // Animate in new step content
-    tl.to(container, {
-      opacity: 1,
-      x: 0,
-      duration: 0.28,
-      ease: 'power2.out',
-      clearProps: 'transform',
-    });
-  }, [currentStepIndex, isTransitioning]);
-
-  const handleNext = () => {
-    if (isLastStep) {
-      handleComplete();
-    } else {
-      transitionToStep(currentStepIndex + 1);
-    }
-  };
-
-  const handleBack = () => {
-    if (!isFirstStep) {
-      transitionToStep(currentStepIndex - 1);
-    }
-  };
-
-  const handleSkip = () => {
-    handleCloseModal();
-  };
-
-  const handleComplete = () => {
-    handleCloseModal();
-  };
-
-  const handleCloseModal = () => {
-    if (isReducedMotion() || !overlayRef.current || !dialogRef.current) {
-      onClose();
-      return;
-    }
-
-    const tl = gsap.timeline({
-      onComplete: onClose,
-    });
-    tl.to(dialogRef.current, {
-      opacity: 0,
-      scale: 0.96,
-      y: 12,
-      duration: 0.22,
-      ease: 'power2.in',
-    });
-    tl.to(
-      overlayRef.current,
-      { opacity: 0, duration: 0.18, ease: 'power2.in' },
-      '-=0.1'
-    );
-  };
-
-  // Keyboard navigation & accessibility
+  // ESC key handler & lock background scroll
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.preventDefault();
-        handleCloseModal();
-      } else if (e.key === 'ArrowRight' && !isLastStep) {
-        e.preventDefault();
-        transitionToStep(currentStepIndex + 1);
-      } else if (e.key === 'ArrowLeft' && !isFirstStep) {
-        e.preventDefault();
-        transitionToStep(currentStepIndex - 1);
+        skipOnboarding();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, currentStepIndex, isLastStep, isFirstStep, transitionToStep]);
+  }, [isOpen, skipOnboarding]);
+
+  // Entrance and exit animations for modal container
+  useGSAP(
+    () => {
+      if (!isOpen || !overlayRef.current || !modalRef.current) return;
+
+      if (isReducedMotion()) {
+        gsap.set(overlayRef.current, { opacity: 1 });
+        gsap.set(modalRef.current, { opacity: 1, scale: 1, y: 0 });
+        return;
+      }
+
+      const tl = gsap.timeline();
+      tl.fromTo(
+        overlayRef.current,
+        { opacity: 0 },
+        { opacity: 1, duration: 0.3, ease: 'power2.out' }
+      ).fromTo(
+        modalRef.current,
+        { opacity: 0, scale: 0.96, y: 16 },
+        { opacity: 1, scale: 1, y: 0, duration: 0.35, ease: 'power2.out' },
+        '-=0.15'
+      );
+    },
+    { dependencies: [isOpen] }
+  );
+
+  // Step transition animation (directional)
+  useGSAP(
+    () => {
+      if (!stepContainerRef.current) return;
+
+      if (isReducedMotion()) {
+        gsap.set(stepContainerRef.current, { opacity: 1, x: 0 });
+        return;
+      }
+
+      const startX = direction === 'forward' ? 24 : -24;
+
+      gsap.fromTo(
+        stepContainerRef.current,
+        { opacity: 0, x: startX },
+        { opacity: 1, x: 0, duration: 0.28, ease: 'power2.out', clearProps: 'transform' }
+      );
+    },
+    { dependencies: [currentStep, direction] }
+  );
 
   if (!isOpen) return null;
 
@@ -180,101 +94,91 @@ export const ClaimPilotOnboarding: React.FC<ClaimPilotOnboardingProps> = ({
       className="onboarding-overlay"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="onboarding-step-title"
-      aria-describedby="onboarding-step-desc"
+      aria-labelledby="onboarding-title"
+      aria-describedby="onboarding-desc"
+      onClick={(e) => {
+        // Prevent accidental backdrop closing unless clicking outside
+        if (e.target === overlayRef.current) {
+          // Keep backdrop stable
+        }
+      }}
     >
-      <div ref={dialogRef} className="onboarding-dialog" tabIndex={-1}>
+      <div ref={modalRef} className="onboarding-modal">
         {/* Close Button */}
         <button
-          onClick={handleCloseModal}
+          onClick={skipOnboarding}
           className="onboarding-close-btn"
-          title="Close tutorial (Esc)"
           aria-label="Close tutorial"
+          title="Skip tutorial (Esc)"
         >
           <X size={16} />
         </button>
 
-        {/* Step Header */}
+        {/* Header */}
         <div className="onboarding-header">
-          <div className="onboarding-header-meta">
-            <span className="onboarding-step-badge">
-              <Sparkles size={12} />
-              {stepData.tag}
-            </span>
+          <div className="onboarding-badge">
+            <Sparkles size={12} />
+            <span>{stepData.badge}</span>
           </div>
-
-          <h2 id="onboarding-step-title" ref={titleRef} className="onboarding-title">
+          <h2 id="onboarding-title" className="onboarding-title">
             {stepData.title}
           </h2>
-
-          <p id="onboarding-step-desc" ref={descRef} className="onboarding-desc">
+          <p id="onboarding-desc" className="onboarding-desc">
             {stepData.description}
           </p>
         </div>
 
-        {/* Visual Stage Box */}
-        <div className="onboarding-stage-wrapper">
-          <div ref={stepContainerRef} className="onboarding-step-slider-container">
-            <OnboardingStepVisual step={stepData.step} />
+        {/* Interactive Step Body */}
+        <div className="onboarding-body">
+          <div ref={stepContainerRef} className="onboarding-step-container">
+            <OnboardingStep step={currentStep} />
           </div>
         </div>
 
-        {/* Navigation & Progress Footer */}
+        {/* Footer Navigation */}
         <div className="onboarding-footer">
-          {/* Dot Progress Indicators */}
-          <div className="onboarding-progress-dots" role="tablist" aria-label="Tutorial steps">
-            {ONBOARDING_STEPS.map((s, idx) => (
+          {/* Left Controls: Back */}
+          <div className="onboarding-nav-left">
+            <button
+              onClick={prevStep}
+              disabled={currentStep === 1}
+              className="btn-onboarding-back"
+              aria-label="Previous step"
+            >
+              <ArrowLeft size={14} />
+              <span>Back</span>
+            </button>
+          </div>
+
+          {/* Center Controls: Progress Dots */}
+          <div className="onboarding-nav-center" role="tablist" aria-label="Tutorial progress">
+            {ONBOARDING_STEPS.map((s) => (
               <button
                 key={s.id}
-                onClick={() => transitionToStep(idx)}
-                className={`onboarding-dot ${idx === currentStepIndex ? 'active' : ''}`}
-                title={`Go to step ${idx + 1}: ${s.title}`}
-                aria-label={`Step ${idx + 1} of ${ONBOARDING_STEPS.length}`}
-                aria-selected={idx === currentStepIndex}
-                role="tab"
+                onClick={() => setStep(s.id)}
+                className={`onboarding-dot ${s.id === currentStep ? 'active' : ''}`}
+                aria-label={`Jump to Step ${s.id}: ${s.title}`}
+                title={`Step ${s.id}`}
               />
             ))}
           </div>
 
-          {/* Action Buttons */}
-          <div className="onboarding-nav-group">
-            {!isFirstStep && (
-              <button
-                onClick={handleBack}
-                className="onboarding-btn-back"
-                aria-label="Previous step"
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <ArrowLeft size={14} /> Back
-                </span>
-              </button>
-            )}
-
-            {!isLastStep ? (
+          {/* Right Controls: Skip / Next / Get Started */}
+          <div className="onboarding-nav-right">
+            {!isFinalStep ? (
               <>
-                <button
-                  onClick={handleSkip}
-                  className="onboarding-btn-skip"
-                  aria-label="Skip onboarding tutorial"
-                >
+                <button onClick={skipOnboarding} className="btn-onboarding-skip">
                   Skip
                 </button>
-                <button
-                  onClick={handleNext}
-                  className="onboarding-btn-next"
-                  aria-label="Next step"
-                >
-                  <span>{stepData.nextButtonText || 'Next →'}</span>
+                <button onClick={nextStep} className="btn-onboarding-next">
+                  <span>Next</span>
+                  <ArrowRight size={14} />
                 </button>
               </>
             ) : (
-              <button
-                onClick={handleComplete}
-                className="onboarding-btn-get-started"
-                aria-label="Complete tutorial and get started"
-              >
+              <button onClick={completeOnboarding} className="btn-onboarding-finish">
                 <span>Get started</span>
-                <ArrowRight size={15} />
+                <Check size={16} strokeWidth={2.5} />
               </button>
             )}
           </div>
