@@ -1,6 +1,7 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Login } from '../pages/Login';
+import { About } from '../pages/About';
 import { useAuth } from '../store/authStore';
 
 import { CustomerLayout } from '../components/layout/CustomerLayout';
@@ -30,12 +31,18 @@ const ProtectedRoute = ({ children, allowedRole }: { children: React.ReactNode, 
   return <>{children}</>;
 };
 
+/** Standalone wrapper for the About page — provides required props */
+const AboutPage = () => {
+  const navigate = useNavigate();
+  return <About onReturn={() => navigate('/login')} isVisible={true} />;
+};
+
 export const AppRoutes = () => {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/about" element={<Login />} />
+        <Route path="/about" element={<AboutPage />} />
 
         {/* Customer Portal */}
         <Route path="/customer" element={

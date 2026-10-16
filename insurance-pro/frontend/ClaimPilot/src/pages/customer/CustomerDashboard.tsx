@@ -1,15 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/authStore';
+import { useOnboarding } from '../../store/onboardingStore';
 import { claimsApi } from '../../services/claimsApi';
 import type { Claim } from '../../types/claim';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { ChevronRight, FilePlus } from 'lucide-react';
 import { useGSAP, animateFadeIn, animateStagger } from '../../lib/gsap';
+import { ClaimPilotOnboarding } from '../../components/onboarding/ClaimPilotOnboarding';
 
 export const CustomerDashboard = () => {
   const { user } = useAuth();
+  const { checkAndTriggerFirstTime } = useOnboarding();
   const navigate = useNavigate();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +34,13 @@ export const CustomerDashboard = () => {
       setLoading(false);
     });
   }, [navigate]);
+
+  // Auto-trigger onboarding for first-time users
+  useEffect(() => {
+    if (!loading) {
+      checkAndTriggerFirstTime(user?.id, user?.email);
+    }
+  }, [loading, user, checkAndTriggerFirstTime]);
 
   // Stagger sections in once data is ready
   useGSAP(() => {
@@ -64,7 +74,9 @@ export const CustomerDashboard = () => {
   const pastClaims = claims.slice(1);
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-xl max-w-4xl mx-auto" style={{ maxWidth: '900px', margin: '0 auto' }}>
+    <>
+      <ClaimPilotOnboarding />
+      <div ref={containerRef} className="flex flex-col gap-xl max-w-4xl mx-auto" style={{ maxWidth: '900px', margin: '0 auto' }}>
       <section className="cd-header mt-8">
         <h1 className="text-2xl mb-2">Good evening, {user?.name.split(' ')[0] || 'User'}</h1>
         <p className="text-muted">Your insurance claims portal.</p>
@@ -158,5 +170,6 @@ export const CustomerDashboard = () => {
         </section>
       )}
     </div>
+    </>
   );
 };

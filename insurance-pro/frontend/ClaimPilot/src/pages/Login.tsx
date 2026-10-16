@@ -12,7 +12,8 @@ export type TransitionState = 'idle' | 'enteringAbout' | 'about' | 'returningToL
 export const Login: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [transitionState, setTransitionState] = useState<TransitionState>('idle');
+  const isInitialAbout = typeof window !== 'undefined' && window.location.pathname === '/about';
+  const [transitionState, setTransitionState] = useState<TransitionState>(() => isInitialAbout ? 'about' : 'idle');
   const [activeSection, setActiveSection] = useState('hero');
 
   // Form State
@@ -72,8 +73,10 @@ export const Login: React.FC = () => {
   }, [showOtp, resendTimer]);
 
   const { contextSafe } = useGSAP(() => {
-    animateStagger('.login-branding-item', { stagger: 0.07, y: 10, duration: 0.38 });
-    animateFadeIn(formColRef.current, { y: 12, duration: 0.4, delay: 0.1 });
+    if (transitionState === 'idle') {
+      animateStagger('.login-branding-item', { stagger: 0.07, y: 10, duration: 0.38 });
+      animateFadeIn(formColRef.current, { y: 12, duration: 0.4, delay: 0.1 });
+    }
   }, { scope: containerRef });
 
   useGSAP(() => {
@@ -176,7 +179,7 @@ export const Login: React.FC = () => {
       opacity: 1,
       duration: 0.8,
       ease: 'expo.inOut',
-      clearProps: 'filter'
+      clearProps: 'filter,transform,opacity,pointerEvents'
     }, 0.6);
 
     tl.to(glassRef.current, {
@@ -629,7 +632,12 @@ export const Login: React.FC = () => {
         </div>
       </div>
 
-      <About isVisible={transitionState === 'about' || transitionState === 'enteringAbout'} onReturn={reverseAboutTransition} onSectionChange={setActiveSection} />
+      <About
+        isVisible={transitionState === 'about' || transitionState === 'enteringAbout'}
+        onReturn={reverseAboutTransition}
+        onSectionChange={setActiveSection}
+        showNav={false}
+      />
 
       <div
         ref={containerRef}
