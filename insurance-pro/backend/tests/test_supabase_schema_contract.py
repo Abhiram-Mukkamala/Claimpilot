@@ -7,6 +7,7 @@ MIGRATIONS = REPO_ROOT / "supabase" / "migrations"
 CORE_SCHEMA = MIGRATIONS / "20261016194212_claimpilot_core_schema.sql"
 SETTLEMENT_COMPAT = MIGRATIONS / "20261016194327_claim_settlement_offer_compat.sql"
 FK_INDEXES = MIGRATIONS / "20261016195154_claimpilot_fk_indexes.sql"
+COST_ESTIMATE_BASIS = MIGRATIONS / "20261016210000_cost_estimate_basis.sql"
 
 
 def _read_migration(path: Path) -> str:
@@ -108,3 +109,9 @@ def test_foreign_key_indexes_are_kept_in_a_follow_up_migration():
     assert "onpublic.otp_verifications(user_id)" in compact_sql
     assert "idx_policies_assigned_agent_id" in sql
     assert "onpublic.policies(assigned_agent_id)" in compact_sql
+
+
+def test_estimate_basis_column_is_added_by_versioned_migration():
+    sql = _read_migration(COST_ESTIMATE_BASIS)
+    assert "alter table public.claim_ai_analysis" in sql
+    assert "add column if not exists estimate_basis text" in sql

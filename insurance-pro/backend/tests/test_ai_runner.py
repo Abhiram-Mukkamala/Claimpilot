@@ -291,6 +291,44 @@ def test_upload_analysis_hashes_compares_persists_and_runs_once(runtime, monkeyp
     assert len(model_calls) == 1
 
 
+def test_runner_uses_geometry_estimator_and_persists_basis_without_internal_fields(runtime, monkeypatch):
+    class FakeCoordinates:
+        def tolist(self):
+            return [0, 0, 500, 500]
+
+    class FakeBox:
+        cls = [0]
+        conf = [0.75]
+        xyxy = [FakeCoordinates()]
+
+    class FakePrediction:
+        orig_shape = (1000, 1000)
+        boxes = [FakeBox()]
+
+    class CrackModel:
+        names = {0: "crack"}
+
+        def predict(self, _path, **_kwargs):
+            return [FakePrediction()]
+
+    monkeypatch.setattr(ai_runner, "get_models", lambda: (CrackModel(), None))
+
+    result = asyncio.run(ai_runner.trigger_ai_assessment(runtime.claim_id))
+
+    damage = result["detected_damages"][0]
+    assert result["estimate_basis"] == "indicative, from a seeded cost table, uncalibrated"
+    assert damage["severity"] == "Severe"
+    assert damage["estimated_cost_min"] == 15000
+    assert damage["estimated_cost_max"] == 30000
+    assert damage["estimated_cost"] == 22500
+    assert result["estimated_cost_min"] == 15000
+    assert result["estimated_cost_max"] == 30000
+    assert not any(key.startswith("_estimator_") for key in damage)
+    assert runtime.ai_analysis["estimate_basis"] == result["estimate_basis"]
+    # The current schema intentionally has clahe_image_url, not image_url.
+    assert "image_url" not in runtime.ai_analysis
+
+
 def test_evidence_catalog_failure_and_retry_do_not_duplicate_analysis(runtime, monkeypatch):
     from fastapi import BackgroundTasks, HTTPException
 

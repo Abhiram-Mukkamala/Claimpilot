@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - "insurance-pro/backend/**"
+      - "insurance-pro/frontend/ClaimPilot/**"
       - "supabase/migrations/**"
       - ".github/workflows/backend-tests.yml"
   pull_request:
     paths:
       - "insurance-pro/backend/**"
+      - "insurance-pro/frontend/ClaimPilot/**"
       - "supabase/migrations/**"
       - ".github/workflows/backend-tests.yml"
 
@@ -48,3 +50,31 @@ jobs:
       - name: Run backend regression suite
         run: python -m pytest -q
         working-directory: insurance-pro/backend
+
+
+  frontend-build:
+    name: Frontend typecheck, tests, and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: insurance-pro/frontend/ClaimPilot/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: insurance-pro/frontend/ClaimPilot
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: insurance-pro/frontend/ClaimPilot
+
+      - name: Typecheck and build frontend
+        run: npm run build
+        working-directory: insurance-pro/frontend/ClaimPilot

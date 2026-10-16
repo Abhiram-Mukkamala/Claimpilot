@@ -1,0 +1,35 @@
+{
+  "source": "ClaimPilot prototype seeded table: ClaimPilot-copy/data/cost_lookup.json; major rates mapped to severe",
+  "currency": "INR",
+  "calibrated": false,
+  "crack": {
+    "minor": {"min": 4500, "max": 9000},
+    "moderate": {"min": 9750, "max": 19500, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 15000, "max": 30000}
+  },
+  "dent": {
+    "minor": {"min": 3500, "max": 6500},
+    "moderate": {"min": 7750, "max": 16250, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 12000, "max": 26000}
+  },
+  "glass shatter": {
+    "minor": {"min": 7000, "max": 13000},
+    "moderate": {"min": 14500, "max": 27500, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 22000, "max": 42000}
+  },
+  "lamp broken": {
+    "minor": {"min": 4000, "max": 9000},
+    "moderate": {"min": 7500, "max": 15500, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 11000, "max": 22000}
+  },
+  "scratch": {
+    "minor": {"min": 2500, "max": 5500},
+    "moderate": {"min": 5250, "max": 11750, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 8000, "max": 18000}
+  },
+  "tire flat": {
+    "minor": {"min": 3000, "max": 6000},
+    "moderate": {"min": 6000, "max": 11500, "note": "UNCALIBRATED, needs garage or insurer data"},
+    "severe": {"min": 9000, "max": 17000}
+  }
+}

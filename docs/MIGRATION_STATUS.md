@@ -30,6 +30,30 @@ GitHub Actions run for the integrated backend/schema regression suite completed 
 
 Previously reported uncommitted Phase 1 security changes in local worktrees `C:\Projects\claimbot AI\wt-impl-phase1` and `ClaimPilot-Final` were not present as remote commits in the inspected source tree. Those modifications were not copied into this migration. Review and apply them deliberately from the local worktree; preserve staged/unstaged work and backups. Do not replace files wholesale without comparing the patch.
 
+## Release-prep port review (17 October 2026)
+
+### Backend cost-estimator port
+
+The useful part of `backend/cost-estimator` is now staged for release: `app/services/cost_estimator.py`, `app/data/cost_table.json`, estimator settings, unit tests, and geometry metadata emitted from the existing inference path. This was **not a wholesale branch merge**. The source branch replaces private-storage downloads with direct URL fetching and creates an unverified TLS context, while dropping the existing canonical evidence-path/owner checks. Those changes were explicitly excluded. The release version continues downloading evidence through the backend's private Supabase storage client and persists only public response fields (no temporary `_estimator_*` geometry keys).
+
+A versioned migration adds `claim_ai_analysis.estimate_basis`; the same additive column was applied to the connected Supabase project. The frontend maps and displays the estimate basis with a clear uncalibrated/indicative disclaimer. The seeded INR table is **not insurer-calibrated** and its figures must not be described as final payouts.
+
+### Feature branches reviewed, not copied blindly
+
+- `frontend/new-claim`: its current delta discards the real `file_path` returned by `storageApi.uploadFile` and fabricates `storage_path` using the claim ID. The backend's evidence-path authorization expects the canonical user-owned path, so this change risks cataloging evidence under the wrong owner and stopping AI analysis. The existing canonical `NewClaim.tsx` remains in use.
+- `frontend/agent-review`: its current delta changes the update call from `claim.backendId || claim.id` to `claim.id`. The canonical backend claim UUID must be preferred. It also weakens the score type guard for no material UI benefit. The existing canonical `AgentClaimDetails.tsx` remains in use.
+- `frontend/login` / `frontend/login3` and the login changes in `ayaan/claimpilot`: not copied wholesale. The Ayaan variant drops the required OTP challenge ID, removes the six-digit validation and useful dispatch/resend error handling. Those are incompatible with the current challenge-bound backend.
+- `ui/onboarding-about`: its alternate full-branch CSS/layout variant was not overlaid on top of the selected Ayaan onboarding design. This avoids replacing the already-integrated layout/state wiring with a competing variant.
+
+### Ayaan connected UI migration status
+
+The **core About/onboarding design is already integrated on the original new `main`** and therefore is inherited by this release branch: About page styling, onboarding steps/modal, onboarding state/storage, first-time onboarding behavior, and manual entry from the customer layout. The integration deliberately keeps the behavior wired through `CustomerLayout` rather than rendering a second modal from `CustomerDashboard`. The About page accepts the current route/API contract, retains the existing not-found route and full page metadata, and includes the fixed team-section anchor. Not every Ayaan branch file is byte-identical: login, dashboard status presentation, route wrapper and index metadata were reviewed individually; only compatible behavior was carried over.
+
+### Evaluation branch organization
+
+The separate branch `tests/model-evaluation-scores` holds the imported photo/video/3D pipeline under `model-evaluation/`, a test plan, and an evaluation-score provenance page. The listed mAP metrics are inherited from the old `models` branch README and were not rerun. Existing release-critical backend regression tests remain on the deployment branch so CI can validate the product code; model-evaluation scripts/results stay isolated from the deploy copy.
+
+
 ## Other branch work not yet integrated
 
 The remaining branch-specific changes listed in `docs/BRANCH_CONSOLIDATION.md` remain in the original repo (and the separate destination branch noted above where applicable) and have not been silently merged. The UI commit intentionally did not replace Login, claims API/auth store, claim submission, agent actions, or backend integrations.

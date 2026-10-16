@@ -22,6 +22,7 @@ export const analysisApi = {
         return {
           imageId: aiData.id || `img-${claimId}`,
           imageUrl: aiData.clahe_image_url || aiData.image_url || primaryPhoto || '',
+          estimateBasis: typeof aiData.estimate_basis === 'string' ? aiData.estimate_basis : undefined,
           totalEstimatedCost: {
             min: costMin,
             max: costMax

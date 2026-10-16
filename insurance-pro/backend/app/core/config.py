@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 10
     MAX_OTP_ATTEMPTS: int = 3
 
+    # Geometry-based, indicative cost-estimator settings (not insurer-calibrated).
+    COST_ESTIMATOR_MIN_CONFIDENCE: float = Field(default=0.30, ge=0.0, le=1.0)
+    COST_SEVERITY_MINOR_MAX_AREA_RATIO: float = Field(default=0.02, gt=0.0, le=1.0)
+    COST_SEVERITY_MODERATE_MAX_AREA_RATIO: float = Field(default=0.08, gt=0.0, le=1.0)
+    COST_DUPLICATE_IOU_THRESHOLD: float = Field(default=0.80, ge=0.0, le=1.0)
+
     @property
     def allowed_origin_list(self) -> List[str]:
         # Exclude wildcard entries even if accidentally supplied in configuration.
