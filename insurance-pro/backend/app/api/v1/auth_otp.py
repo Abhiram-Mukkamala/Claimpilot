@@ -137,6 +137,8 @@ async def issue_otp(
                 created_at=created_at,
             ),
             "channel": payload.channel.value,
+            "purpose": purpose,
+            "user_id": user_id or None,
             "attempts": 0,
             "is_verified": False,
             "expires_at": expires_at.isoformat(),
@@ -312,6 +314,20 @@ async def verify_otp(payload: OtpVerifyRequest):
     user_id = str(profile.get("id")) if profile and profile.get("id") else ""
     if purpose == "login" and not user_id:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.")
+
+    # The stored challenge's purpose and identity are authoritative bindings.
+    # Never infer a signup challenge from a login challenge (or vice versa).
+    stored_purpose = active_otp.get("purpose")
+    stored_user_id = str(active_otp.get("user_id") or "")
+    if (
+        stored_purpose != purpose
+        or (purpose == "login" and stored_user_id != user_id)
+        or (purpose == "signup" and stored_user_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code is invalid. Please request a new code.",
+        )
 
     try:
         current_attempts = int(active_otp.get("attempts", 0) or 0)
