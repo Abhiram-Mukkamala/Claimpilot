@@ -19,7 +19,7 @@ Destination: https://github.com/Abhiram-Mukkamala/Claimpilot (private)
 - Both original `hero.png` assets, byte-for-byte restored from the source branch; source and destination blob SHA matches.
 - Both model weights: `rt-detr.pt` and `yolov11m.pt`. The migration API could not return their binary content, but the same exact Git blob objects were already present in the destination's `claimpilotayaan` branch and were referenced into `main`.
 - `docs/BRANCH_CONSOLIDATION.md`, tracking remaining feature work.
-- Selected Ayaan UI in commit `5724e85085ea3f981a6fed9382e347786b9f8997`: About page + CSS, onboarding modal/steps/CSS/state store, and CustomerLayout onboarding wiring. Review follow-up fixes: `12f8c78f7dd9143ca2fb53f05ced60f22d55379c` corrects per-user onboarding completion persistence; `a0fbc909ae9fb275f0bd1ca1366d27a2246cc4de` fixes the About page team-section anchor; `e9f4bea8cbe8eb5ae817c08b5e1dd5f770b84e58` adds keyboard focus containment and background-scroll locking to onboarding.
+- Selected Ayaan UI in commit `5724e85085ea3f981a6fed9382e347786b9f8997`: About page + CSS, onboarding modal/steps/CSS/state store, and CustomerLayout onboarding wiring. Review follow-up fixes: `12f8c78f7dd9143ca2fb53f05ced60f22d55379c` corrects per-user onboarding completion persistence; `a0fbc909ae9fb275f0bd1ca1366d27a2246cc4de` fixes the About page team-section anchor; `e9f4bea8cbe8eb5ae817c08b5e1dd5f770b84e58` adds keyboard focus containment and background-scroll locking to onboarding; `c9307de4a9869765596b8cbe1402d5c44603b5c5` corrects the step-jump controls' accessibility semantics.
 - Only `.env.example` templates; no real `.env` file was migrated.
 
 ## Local security work not included
