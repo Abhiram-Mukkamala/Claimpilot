@@ -8,6 +8,7 @@ from ultralytics import YOLO, RTDETR
 from app.core.config import settings
 from app.db.supabase import db
 from app.services.evidence_storage import canonical_evidence_path
+from app.services.cost_estimator import estimate_damage_costs
 from app.services.fraud_analysis_service import PhashColumnMissingError, analyze_fraud
 
 logger = logging.getLogger("claimpilot.ai_runner")
@@ -239,6 +240,9 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
                                 "location": f"Panel Area {box_index + 1}",
                                 "repair_action": "Tinkering & Paint",
                                 "estimated_cost": round(confidence * 5000, 2),
+                                "_estimator_class_name": label,
+                                "_estimator_bbox_xyxy": [x1, y1, x2, y2],
+                                "_estimator_image_size": [img_w, img_h],
                                 "boundingBox": {
                                     "x": round((x1 / img_w) * 100, 2),
                                     "y": round((y1 / img_h) * 100, 2),
@@ -271,6 +275,9 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
                                 "location": f"Panel Area {box_index + 1}",
                                 "repair_action": "Replacement",
                                 "estimated_cost": round(confidence * 7500, 2),
+                                "_estimator_class_name": "Structural Panel Damage",
+                                "_estimator_bbox_xyxy": [x1, y1, x2, y2],
+                                "_estimator_image_size": [img_w, img_h],
                                 "boundingBox": {
                                     "x": round((x1 / img_w) * 100, 2),
                                     "y": round((y1 / img_h) * 100, 2),
@@ -290,9 +297,19 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
             claim_id,
             "Unable to download uploaded damage photos.",
         )
-    total_est = sum(item["estimated_cost"] for item in detected_damages)
-    estimated_min = round(total_est * 0.85, 2) if detected_damages else 0.0
-    estimated_max = round(total_est * 1.15, 2) if detected_damages else 0.0
+    # Geometry and a seeded cost table provide an indicative estimate only.
+    # The estimator removes its internal geometry fields before persistence.
+    cost_estimate = estimate_damage_costs(
+        detected_damages,
+        min_confidence=settings.COST_ESTIMATOR_MIN_CONFIDENCE,
+        minor_max_area_ratio=settings.COST_SEVERITY_MINOR_MAX_AREA_RATIO,
+        moderate_max_area_ratio=settings.COST_SEVERITY_MODERATE_MAX_AREA_RATIO,
+        duplicate_iou_threshold=settings.COST_DUPLICATE_IOU_THRESHOLD,
+    )
+    detected_damages = cost_estimate["detected_damages"]
+    estimated_min = cost_estimate["estimated_cost_min"]
+    estimated_max = cost_estimate["estimated_cost_max"]
+    estimate_basis = cost_estimate["estimate_basis"]
     primary_image_url = photo_evidence[0][1]
 
     analysis_payload = {
@@ -302,7 +319,8 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         "detected_damages": detected_damages,
         "estimated_cost_min": estimated_min,
         "estimated_cost_max": estimated_max,
-        "image_url": primary_image_url,
+        "estimate_basis": estimate_basis,
+        # claim_ai_analysis has clahe_image_url but no image_url column.
         "clahe_image_url": primary_image_url,
         "segmentation_masks": {
             "mask_count": len(detected_damages),
