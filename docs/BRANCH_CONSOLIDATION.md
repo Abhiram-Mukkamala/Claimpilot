@@ -53,6 +53,10 @@ The eight application tables are present with RLS enabled and no direct table gr
 
 The existing test suites are present in `insurance-pro/backend/tests/`, including deterministic end-to-end smoke, authorization/claim-flow, AI, OTP/security/log-redaction, JWT hardening, and backend security regressions. OTP tests now verify stored purpose/user binding, and `test_supabase_schema_contract.py` checks the migration contract and private storage configuration. Static inventory currently counts 106 test functions. **They have not yet been run as a complete suite in this session**, so no passing-build claim should be made. The real backend environment file, email/SMS provider configuration, demo agent/policy setup, and a hosted end-to-end run remain outstanding.
 
+## Validation result (17 October 2026)
+
+GitHub Actions executed the backend/schema regression suite successfully: **146 passed, 10 warnings in 2.71 seconds** (PR #2). The tests run with dummy credentials and mocked dependencies, so they validate application regressions and migration contracts but do not count as a live Auth/storage/claim end-to-end run. The workflow was subsequently bumped to Node 24-compatible action versions; that follow-up run is being validated separately.
+
 ## Safe integration procedure
 
 1. Compare the baseline to one source feature branch at a time and review its complete changed-file list.
