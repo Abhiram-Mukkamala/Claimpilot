@@ -195,7 +195,9 @@ export const About: React.FC<AboutProps> = ({
                     if (id === 'hero') {
                       containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
                     } else {
-                      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+                      // "team" is the navbar state name; the actual section id is "who-are-we".
+                      const targetId = id === 'team' ? 'who-are-we' : id;
+                      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
                     }
                   }}
                   style={{
