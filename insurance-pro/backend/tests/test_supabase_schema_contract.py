@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 MIGRATIONS = REPO_ROOT / "supabase" / "migrations"
 CORE_SCHEMA = MIGRATIONS / "20261016194212_claimpilot_core_schema.sql"
 SETTLEMENT_COMPAT = MIGRATIONS / "20261016194327_claim_settlement_offer_compat.sql"
+FK_INDEXES = MIGRATIONS / "20261016195154_claimpilot_fk_indexes.sql"
 
 
 def _read_migration(path: Path) -> str:
@@ -92,3 +93,13 @@ def test_evidence_bucket_is_private_and_limits_match_backend():
     assert "'claim-evidence','claim-evidence',false,52428800" in compact_sql
     for mime in ("image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"):
         assert f"'{mime}'" in sql
+
+
+
+def test_foreign_key_indexes_are_kept_in_a_follow_up_migration():
+    sql = _read_migration(FK_INDEXES)
+    compact_sql = "".join(sql.split())
+    assert "idx_otp_verifications_user_id" in sql
+    assert "on public.otp_verifications(user_id)" in compact_sql
+    assert "idx_policies_assigned_agent_id" in sql
+    assert "on public.policies(assigned_agent_id)" in compact_sql
