@@ -1,8 +1,8 @@
 # ClaimPilot — Supabase Setup & Security-Readiness Guide
 
 **Target Audience:** Project Lead / Platform Operator
-**Repository Branch:** `security/backend-hardening`
-**Current State:** Supabase setup and credential rotation are pending. No successful end-to-end claim has been established in the handoff.
+**Repository Branch:** `main`
+**Current State (17 October 2026):** Core ClaimPilot schema and private `claim-evidence` bucket are applied to Supabase project `tiwdktgeqifhumcrwniv`; both applied migration versions are recorded. Credentials, Auth email delivery, demo agent/policy seeding, and live end-to-end claim flow still require operator setup and verification.
 **Objective:** Provide a verified, reproducible execution order and verification protocol to bring Supabase, authentication, storage, and fraud engine into a verified operational state without hardcoding or leaking credentials.
 
 ---
@@ -13,31 +13,29 @@ Before executing any commands, understand the boundary between checked-in reposi
 
 | Component | Repository Fact (Verified by Code Inspection) | Remote Operator State (Must Be Verified in Supabase) |
 |---|---|---|
-| **Base Schema** | `schema.sql` defines `profiles`, `otp_verifications`, `claims`, `claim_evidence`, `claim_ai_analysis`, enums (`user_role`, `claim_type`, `claim_status`), and `uuid-ossp` extension. | **Unverified.** Table existence cannot be assumed merely because `.sql` files exist in git. |
-| **Schema Refinements** | `migration_v2.sql` adds missing columns: `claims.location_city`, `claims.pincode`, `claims.claimed_amount`, `claims.approved_amount`, and `claim_evidence.storage_path`. | **Unverified.** If missing, claim creation or evidence cataloging fails with column-missing database errors. |
-| **pHash / Fraud Schema** | `migration_v3_phash.sql` adds `claim_evidence.phash`, `idx_claim_evidence_phash`, `claim_fraud_analyses` table, and `claim_ai_analysis` fraud fields. | **Unverified.** If missing, `fraud_analysis_service.py` explicitly raises `PhashColumnMissingError` upon photo upload. |
-| **Policy Seed** | `seed_demo.sql` creates `agent_policies` & `policies` tables, adds RLS, and seeds `DEMO-POL-001..003` assigned to `<AGENT_EMAIL_PLACEHOLDER>`. | **Unverified.** `claims.py:57-87` strictly mandates that `agent_policies` maps the submitted policy to an existing agent in `public.profiles`. |
-| **Storage Bucket** | Backend defaults to `SUPABASE_STORAGE_BUCKET="claim-evidence"`. Files are saved under `evidence/{category}/{user_id}/...`. The backend uses service-role storage operations and time-limited signed URLs where needed. | **Unverified.** The `claim-evidence` bucket must exist as a **Private** bucket, with backend credentials configured for required storage operations. |
-| **Backend PostgREST Client** | `app/db/supabase.py` initializes `AsyncSupabaseDB` with `SUPABASE_SERVICE_ROLE_KEY`. Queries bypass Postgres Row Level Security (RLS). | Remote RLS policies do not restrict the FastAPI backend, but anon/client access requires explicit policies. |
+| **Base Schema** | Versioned migration `supabase/migrations/20261016194212_claimpilot_core_schema.sql` defines the core types, eight application tables, indexes, and service-role-only grants. | **Verified on 17 Oct 2026.** Eight ClaimPilot tables exist with RLS enabled; app tables have no `anon`/`authenticated` grants. |
+| **Schema Refinements** | The canonical migration includes city/state/pincode, amount, private storage-path, and OTP purpose/identity fields. A follow-up migration adds `claims.settlement_offer_amount` for the current agent approval route. | **Verified on 17 Oct 2026.** Required columns are present. The legacy `schema.sql`/`migration_v2.sql` are historical compatibility references; do not apply them over the canonical migrations. |
+| **pHash / Fraud Schema** | The canonical migration includes `claim_evidence.phash`, its index, `claim_fraud_analyses`, and AI fraud fields. | **Verified on 17 Oct 2026.** Required tables and columns exist; no real claim/photo has yet been processed against this project. |
+| **Policy Seed** | `agent_policies` and `policies` exist in the canonical schema; demo records have not been seeded. | **Pending.** Register/verify the demo agent first, then seed only policy mappings for that real profile. Review `seed_demo.sql` first; do not add broad `USING (true)` client read policies because the backend-only design denies direct client table access. |
+| **Storage Bucket** | Backend uses `SUPABASE_STORAGE_BUCKET="claim-evidence"` and private paths `evidence/{category}/{user_id}/...`. The versioned migration creates a private bucket with a 50 MB limit and the expected MIME allow-list. | **Verified on 17 Oct 2026.** Bucket exists and `public=false`; live signed upload/read operations remain to be exercised. |
+| **Backend PostgREST Client** | `app/db/supabase.py` uses the service-role key for server-side PostgREST/storage operations; browser clients call FastAPI. | **Verified grants:** the service role has table privileges; `anon` and `authenticated` have no direct privileges on ClaimPilot tables. RLS is enabled and there are intentionally no direct-client table policies under this backend-only design. |
 | **Backend JWT Secret** | `app/core/security.py` signs and verifies application session tokens and email action links using `JWT_SECRET`. | **Separate from Supabase JWT secret.** The backend JWT secret must be an independently generated random 256-bit key. |
 
 ---
 
 ## 2. Correct Setup Order (Dependency-Driven)
 
-Executing scripts out of order will result in foreign key errors or missing column exceptions. Follow this strict sequence:
+The canonical versioned migrations have already been applied to the connected Supabase project. Do **not** apply the legacy `schema.sql`, `migration_v2.sql`, and `migration_v3_phash.sql` on top of them; their definitions overlap and differ in role/OTP defaults. For fresh environments, apply only the migration files in `supabase/migrations/` in timestamp order and verify the remote migration history before pushing.
 
 ```mermaid
 flowchart TD
-    S1[1. Supabase Project & Region Verification] --> S2[2. Storage Bucket Creation: claim-evidence]
-    S2 --> S3[3. Execute schema.sql: Core Tables & Enums]
-    S3 --> S4[4. Execute migration_v2.sql: Schema Refinements]
-    S4 --> S5[5. Execute migration_v3_phash.sql: Fraud & pHash Tables]
-    S5 --> S6[6. Run Verification SQL Query]
-    S6 --> S7[7. Credential Rotation & Backend .env Setup]
-    S7 --> S8[8. Start Backend & Register Agent + Customer]
-    S8 --> S9[9. Execute seed_demo.sql with Real Agent Email]
-    S9 --> S10[10. Run End-to-End Claim & Duplicate-Photo Verification]
+    S1[1. Verify project, region, and migration history] --> S2[2. Verify private claim-evidence bucket]
+    S2 --> S3[3. Apply versioned migrations in order]
+    S3 --> S4[4. Verify tables, columns, RLS, grants, and bucket]
+    S4 --> S5[5. Configure rotated secrets in backend .env]
+    S5 --> S6[6. Verify Auth email delivery and register demo agent/customer]
+    S6 --> S7[7. Seed policy mapping for the real agent profile]
+    S7 --> S8[8. Run API tests and a real end-to-end claim]
 ```
 
 ---
@@ -50,28 +48,19 @@ flowchart TD
    - Confirm **Status** is `ACTIVE_HEALTHY` (not paused or provisioning).
    - Note the **Region** (e.g., `ap-south-1` Mumbai or `us-east-1`). Low latency to the backend host is recommended.
 
-### Step 3.2: Configure Storage (`claim-evidence`)
-1. Go to **Storage** > **New Bucket**.
-2. Set **Bucket Name**: `claim-evidence` (exact match with `SUPABASE_STORAGE_BUCKET` in `.env.example`).
-3. Set **Public Bucket**: **Disabled** (`OFF`). Claim evidence must not be publicly readable.
+### Step 3.2: Verify Storage (`claim-evidence`)
+The bucket has already been created by the canonical migration. In the Supabase dashboard, verify its name is `claim-evidence`, **Public Bucket** is **Disabled** (`OFF`), file size is 50 MB, and its MIME allow-list is `image/jpeg, image/png, image/webp, video/mp4, video/quicktime`. Claim evidence must not be publicly readable.
    > **How access works:** The backend generates signed upload URLs and downloads evidence for AI assessment through its service-role storage client. Signed read URLs are time-limited. Never expose signed URL tokens in logs.
 4. Set **File size limit**: `50MB` (matches `MAX_FILE_SIZE_BYTES` in `storage.py:25`).
 5. Set **Allowed MIME types**: `image/jpeg, image/png, image/webp, video/mp4, video/quicktime`.
 
-### Step 3.3: Execute Schema & Migrations in SQL Editor
-Navigate to **SQL Editor** in the Supabase Dashboard and execute the following repository files in sequence:
+### Step 3.3: Versioned migrations
+The canonical migration files in this repository are:
 
-1. **Base DDL:** Paste and run [insurance-pro/backend/schema.sql](file:///c:/Projects/claimbot%20AI/ClaimPilot-Final/insurance-pro/backend/schema.sql).
-   - Verifies extensions (`uuid-ossp`).
-   - Creates ENUMs: `user_role`, `claim_type`, `claim_status`.
-   - Creates tables: `public.profiles`, `public.otp_verifications`, `public.claims`, `public.claim_evidence`, `public.claim_ai_analysis`.
-2. **Schema Refinement:** Paste and run [insurance-pro/backend/migration_v2.sql](file:///c:/Projects/claimbot%20AI/ClaimPilot-Final/insurance-pro/backend/migration_v2.sql).
-   - Adds `pincode`, `location_city`, `location_state`, `claimed_amount`, `approved_amount` to `claims`.
-   - Adds `storage_path` to `claim_evidence`.
-3. **Fraud & pHash Engine:** Paste and run [insurance-pro/backend/migration_v3_phash.sql](file:///c:/Projects/claimbot%20AI/ClaimPilot-Final/insurance-pro/backend/migration_v3_phash.sql).
-   - Adds `phash VARCHAR(16)` to `claim_evidence` and index `idx_claim_evidence_phash`.
-   - Creates `public.claim_fraud_analyses` table.
-   - Adds fraud fields to `claim_ai_analysis`.
+1. `supabase/migrations/20261016194212_claimpilot_core_schema.sql` — core tables, enums, constraints, indexes, RLS, service-role grants, starter-object grant cleanup, and private evidence bucket.
+2. `supabase/migrations/20261016194327_claim_settlement_offer_compat.sql` — compatibility column used by the current agent approval handler.
+
+The connected project records these same two versions. Do not run legacy SQL schema/migration files manually after applying these migrations. Keep schema changes versioned and add a new timestamped migration for future changes.
 
 ### Step 3.4: Operator Verification SQL Query
 Run this single read-only diagnostic query in the Supabase SQL Editor to verify database readiness:
@@ -84,7 +73,8 @@ WITH table_check AS (
     WHERE table_schema = 'public'
       AND table_name IN (
         'profiles', 'otp_verifications', 'claims',
-        'claim_evidence', 'claim_ai_analysis', 'claim_fraud_analyses'
+        'claim_evidence', 'claim_ai_analysis', 'claim_fraud_analyses',
+        'agent_policies', 'policies'
       )
 ),
 column_check AS (
@@ -103,15 +93,15 @@ bucket_check AS (
     WHERE name = 'claim-evidence'
 )
 SELECT
-    (SELECT count(*) FROM table_check) AS existing_core_tables, -- Expect: 6
+    (SELECT count(*) FROM table_check) AS existing_core_tables, -- Expect: 8
     (SELECT count(*) FROM column_check) AS existing_critical_columns, -- Expect: 7
-    (SELECT public FROM bucket_check) AS bucket_is_public; -- Expect: true
+    (SELECT public FROM bucket_check) AS bucket_is_public; -- Expect: false
 ```
 
 *Required Verification Output:*
-- `existing_core_tables`: **6**
+- `existing_core_tables`: **8**
 - `existing_critical_columns`: **7**
-- `bucket_is_public`: **true**
+- `bucket_is_public`: **false**
 
 ---
 
