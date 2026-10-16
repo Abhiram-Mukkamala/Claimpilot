@@ -179,13 +179,14 @@ export const ClaimPilotOnboarding: React.FC = () => {
           </div>
 
           {/* Center Controls: Progress Dots */}
-          <div className="onboarding-nav-center" role="tablist" aria-label="Tutorial progress">
+          <div className="onboarding-nav-center" role="group" aria-label="Jump to tutorial step">
             {ONBOARDING_STEPS.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setStep(s.id)}
                 className={`onboarding-dot ${s.id === currentStep ? 'active' : ''}`}
                 aria-label={`Jump to Step ${s.id}: ${s.title}`}
+                aria-current={s.id === currentStep ? 'step' : undefined}
                 title={`Step ${s.id}`}
               />
             ))}
