@@ -83,7 +83,8 @@ column_check AS (
     WHERE table_schema = 'public'
       AND (
         (table_name = 'claim_evidence' AND column_name IN ('phash', 'storage_path')) OR
-        (table_name = 'claims' AND column_name IN ('pincode', 'location_city', 'claimed_amount')) OR
+        (table_name = 'claims' AND column_name IN ('pincode', 'location_city', 'claimed_amount', 'approved_amount', 'settlement_offer_amount')) OR
+        (table_name = 'otp_verifications' AND column_name IN ('purpose', 'user_id')) OR
         (table_name = 'claim_ai_analysis' AND column_name IN ('fraud_analysis', 'analysis_status'))
       )
 ),
@@ -94,13 +95,13 @@ bucket_check AS (
 )
 SELECT
     (SELECT count(*) FROM table_check) AS existing_core_tables, -- Expect: 8
-    (SELECT count(*) FROM column_check) AS existing_critical_columns, -- Expect: 7
+    (SELECT count(*) FROM column_check) AS existing_critical_columns, -- Expect: 11
     (SELECT public FROM bucket_check) AS bucket_is_public; -- Expect: false
 ```
 
 *Required Verification Output:*
 - `existing_core_tables`: **8**
-- `existing_critical_columns`: **7**
+- `existing_critical_columns`: **11**
 - `bucket_is_public`: **false**
 
 ---
