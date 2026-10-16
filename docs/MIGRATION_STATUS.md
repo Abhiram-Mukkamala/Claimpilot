@@ -36,3 +36,20 @@ The remaining branch-specific changes listed in `docs/BRANCH_CONSOLIDATION.md` r
 - Source-file blob hashes were checked when copying text blobs; both PNG assets and both model-weight blob hashes match the source objects.
 - **Tests/build were not run as part of this migration.**
 - Other feature-branch work and the separate local security changes still need review. Do not declare the release ready until those items are resolved and the end-to-end workflow passes.
+
+
+## Supabase integration (17 October 2026)
+
+The connected Supabase project `tiwdktgeqifhumcrwniv` (Mumbai region, `ap-south-1`) now has the versioned ClaimPilot schema applied. Remote migration history was verified against the files in `supabase/migrations/`:
+
+- `20261016194212_claimpilot_core_schema.sql` — profiles, OTPs, claims, evidence, AI analysis, fraud analysis, policy mappings, enums, indexes, RLS, service-role privileges, and the private `claim-evidence` bucket.
+- `20261016194327_claim_settlement_offer_compat.sql` — compatibility column used by the current agent approval handler.
+- `20261016195154_claimpilot_fk_indexes.sql` — indexes for OTP-user and policy-agent foreign keys.
+
+Live verification confirms all eight ClaimPilot tables exist, RLS is enabled, and `anon`/`authenticated` have no table grants on ClaimPilot tables or the starter `public.tasks` table. The `claim-evidence` bucket is private, has a 50 MB limit, and permits the configured image/video MIME types. No test customer, agent, claim, evidence, or policy data has been seeded into Supabase.
+
+### Regression tests in the destination repository
+
+The destination includes the existing authorization claim-flow, deterministic demo smoke, smoke-runner, AI-runner, sensitive-logging, JWT/security-hardening, and backend security-regression suites. OTP tests were expanded to assert stored purpose/user binding and reject mismatched bindings; the smoke OTP fixture was aligned with those fields. `test_supabase_schema_contract.py` checks the versioned schema, RLS/client grants, private bucket, settlement compatibility, and foreign-key indexes. The repository currently contains 106 test functions across these eight suites.
+
+**Execution status:** The live schema has been queried and verified, but the Python test suite has not yet been run against a local checkout and no CI results are available. Do not treat this as a passing build. The remaining operational steps are to configure real backend environment variables without committing secrets, register an actual demo agent and customer, run the safe demo-policy seed using the real agent email, then run the backend suite and hosted end-to-end smoke test.
