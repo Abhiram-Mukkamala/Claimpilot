@@ -9,6 +9,14 @@ interface OnboardingState {
   isCompleted: boolean;
 }
 
+// Keep the same key normalization as the existing onboardingStorage helper.
+// This preserves completion flags written by the previous onboarding UI.
+const normalizeIdentity = (identifier: string): string =>
+  identifier.trim().toLowerCase().replace(/[^a-z0-9_@.-]/g, '_');
+
+const getCompletionKey = (identifier: string): string =>
+  `${ONBOARDING_COMPLETED_KEY}_${normalizeIdentity(identifier)}`;
+
 class OnboardingStore {
   private state: OnboardingState = {
     isOpen: false,
@@ -18,11 +26,16 @@ class OnboardingStore {
   };
   private listeners: Set<(state: OnboardingState) => void> = new Set();
   private checkedAutoTriggerIdentities = new Set<string>();
+  private activeUserId?: string;
+  private activeEmail?: string;
 
   constructor() {
     if (typeof window !== 'undefined') {
-      const completed = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
-      this.state.isCompleted = completed;
+      try {
+        this.state.isCompleted = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
+      } catch {
+        // Storage may be unavailable in restricted browser contexts.
+      }
     }
   }
 
@@ -36,29 +49,43 @@ class OnboardingStore {
   }
 
   /**
-   * Automatically opens tutorial if this is the user's first time
+   * Automatically opens tutorial if this is the user's first time.
    */
   checkAndTriggerFirstTime(userId?: string, email?: string) {
     if (typeof window === 'undefined') return;
-    const identity = userId || email || 'anonymous';
+
+    // Retain the active identity so completion can be persisted even if the
+    // auth store keeps its user object in localStorage rather than sessionStorage.
+    this.activeUserId = userId;
+    this.activeEmail = email;
+
+    const identity = normalizeIdentity(userId || email || 'anonymous');
     if (this.checkedAutoTriggerIdentities.has(identity)) return;
     this.checkedAutoTriggerIdentities.add(identity);
 
-    const userCompleted = userId
-      ? localStorage.getItem(`${ONBOARDING_COMPLETED_KEY}_${userId}`) === 'true'
-      : false;
-    const emailCompleted = email
-      ? localStorage.getItem(`${ONBOARDING_COMPLETED_KEY}_${email}`) === 'true'
-      : false;
-    const fallbackCompleted = !userId && !email && localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
+    let userCompleted = false;
+    let emailCompleted = false;
+    try {
+      userCompleted = userId
+        ? localStorage.getItem(getCompletionKey(userId)) === 'true'
+        : false;
+      emailCompleted = email
+        ? localStorage.getItem(getCompletionKey(email)) === 'true'
+        : false;
+      const fallbackCompleted =
+        !userId && !email && localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
 
-    if (!userCompleted && !emailCompleted && !fallbackCompleted) {
-      // Delay slightly so dashboard entrance animations settle smoothly
-      setTimeout(() => {
-        this.openOnboarding(1);
-      }, 450);
-    } else {
-      this.update({ isCompleted: true });
+      if (!userCompleted && !emailCompleted && !fallbackCompleted) {
+        // Delay slightly so dashboard entrance animations settle smoothly.
+        setTimeout(() => {
+          this.openOnboarding(1);
+        }, 450);
+      } else {
+        this.update({ isCompleted: true });
+      }
+    } catch {
+      // If storage is unavailable, still allow the tutorial to be shown.
+      this.openOnboarding(1);
     }
   }
 
@@ -106,21 +133,34 @@ class OnboardingStore {
 
   private markAsCompleted() {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
 
-    // Also persist for any active session user
     try {
-      const stored = sessionStorage.getItem('auth_user');
-      if (stored) {
-        const user = JSON.parse(stored);
-        if (user?.id) localStorage.setItem(`${ONBOARDING_COMPLETED_KEY}_${user.id}`, 'true');
-        if (user?.email) localStorage.setItem(`${ONBOARDING_COMPLETED_KEY}_${user.email}`, 'true');
-      }
-    } catch {
-      // Ignore
-    }
+      const identities = new Set<string>();
+      if (this.activeUserId) identities.add(this.activeUserId);
+      if (this.activeEmail) identities.add(this.activeEmail);
 
-    this.update({ isCompleted: true });
+      // Support either storage location so identity is recovered safely when
+      // onboarding is opened manually before the auth effect has run.
+      const storedUser = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          if (typeof user?.id === 'string' && user.id) identities.add(user.id);
+          if (typeof user?.email === 'string' && user.email) identities.add(user.email);
+        } catch {
+          // Ignore malformed cached auth state; active identity may still exist.
+        }
+      }
+
+      for (const identity of identities) {
+        localStorage.setItem(getCompletionKey(identity), 'true');
+      }
+      // Keep the legacy global flag for compatibility with old consumers.
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
+      this.update({ isCompleted: true });
+    } catch {
+      // Do not break the tutorial UI if browser storage is unavailable.
+    }
   }
 
   subscribe(listener: (state: OnboardingState) => void) {
