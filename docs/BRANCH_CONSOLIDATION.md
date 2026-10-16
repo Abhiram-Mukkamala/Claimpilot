@@ -39,6 +39,20 @@ The snapshot intentionally preserves both frontend trees: root-level `src/` (pro
 
 Commit: `5724e85085ea3f981a6fed9382e347786b9f8997` (`feat(ui): port Ayaan onboarding and about page design`). This ports the About page design and its stylesheet, the six-step onboarding UI and state store, and the CustomerLayout wiring. The onboarding auto-trigger tracks completion per user/email rather than letting one user's global completion flag suppress onboarding for everyone. A follow-up review found and fixed per-user completion persistence (auth user storage location and legacy key normalization), the About page's team-section navigation target, and onboarding modal focus/background-scroll accessibility plus correct semantics for step-jump controls in commits `12f8c78f7dd9143ca2fb53f05ced60f22d55379c`, `a0fbc909ae9fb275f0bd1ca1366d27a2246cc4de`, `e9f4bea8cbe8eb5ae817c08b5e1dd5f770b84e58`, and `c9307de4a9869765596b8cbe1402d5c44603b5c5`. The existing `claimsApi.ts`, `authStore.ts`, `Login.tsx`, backend claim/agent endpoints, and smoke-test runner were not changed by the UI port or these fixes. The onboarding modal now traps keyboard focus, restores focus on close, and locks background scrolling. Build and automated tests remain unrun.
 
+## Supabase integration applied on 17 October 2026
+
+Connected project: `tiwdktgeqifhumcrwniv` (`ap-south-1`). The database's remote migration history matches these checked-in files:
+
+- `supabase/migrations/20261016194212_claimpilot_core_schema.sql`
+- `supabase/migrations/20261016194327_claim_settlement_offer_compat.sql`
+- `supabase/migrations/20261016195154_claimpilot_fk_indexes.sql`
+
+The eight application tables are present with RLS enabled and no direct table grants to `anon` or `authenticated`; the API uses the service-role key only on the backend. `claim-evidence` is private with a 50 MB limit and the intended image/video MIME allow-list. The starter `public.tasks` client grants and execute grants on `public.rls_auto_enable()` were revoked. No demo users, policy records, claims, or evidence were inserted.
+
+`insurance-pro/backend/seed_demo.sql` was revised to rely on the canonical schema, require a real agent profile, and avoid broad `USING (true)` policies. Run it only after registering the agent and replacing its placeholder email.
+
+The existing test suites are present in `insurance-pro/backend/tests/`, including deterministic end-to-end smoke, authorization/claim-flow, AI, OTP/security/log-redaction, JWT hardening, and backend security regressions. OTP tests now verify stored purpose/user binding, and `test_supabase_schema_contract.py` checks the migration contract and private storage configuration. Static inventory currently counts 106 test functions. **They have not yet been run as a complete suite in this session**, so no passing-build claim should be made. The real backend environment file, email/SMS provider configuration, demo agent/policy setup, and a hosted end-to-end run remain outstanding.
+
 ## Safe integration procedure
 
 1. Compare the baseline to one source feature branch at a time and review its complete changed-file list.
