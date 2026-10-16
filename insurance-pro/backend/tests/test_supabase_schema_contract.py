@@ -1,6 +1,5 @@
 """Static contract checks keeping the Supabase migration aligned with the backend."""
 from pathlib import Path
-import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -27,10 +26,9 @@ def test_core_schema_has_every_table_used_by_the_backend():
         "policies",
     )
     for table in tables:
-        assert re.search(
-            rf"create table if not exists public\\.{table}\\b",
-            sql,
-        ), f"Backend table public.{table} is absent from the core migration"
+        assert f"create table if not exists public.{table} (" in sql, (
+            f"Backend table public.{table} is absent from the core migration"
+        )
 
 
 def test_claim_schema_supports_statuses_and_fields_written_by_backend():
@@ -48,9 +46,9 @@ def test_claim_schema_supports_statuses_and_fields_written_by_backend():
     ):
         assert f"'{status}'" in sql
     for field in ("location_city", "location_state", "pincode", "claimed_amount", "approved_amount"):
-        assert re.search(rf"\\b{field}\\b", sql)
+        assert field in sql
     settlement_sql = _read_migration(SETTLEMENT_COMPAT)
-    assert re.search(r"add column if not exists settlement_offer_amount", settlement_sql)
+    assert "add column if not exists settlement_offer_amount" in settlement_sql
 
 
 def test_otp_challenges_persist_purpose_identity_expiry_and_replay_state():
@@ -90,9 +88,7 @@ def test_all_app_tables_enable_rls_and_deny_direct_client_table_grants():
 
 def test_evidence_bucket_is_private_and_limits_match_backend():
     sql = _read_migration(CORE_SCHEMA)
-    assert "'claim-evidence','claim-evidence',false,52428800" in re.sub(r"\\s+", "", sql)
-    assert "'image/jpeg'" in sql
-    assert "'image/png'" in sql
-    assert "'image/webp'" in sql
-    assert "'video/mp4'" in sql
-    assert "'video/quicktime'" in sql
+    compact_sql = "".join(sql.split())
+    assert "'claim-evidence','claim-evidence',false,52428800" in compact_sql
+    for mime in ("image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"):
+        assert f"'{mime}'" in sql
