@@ -27,6 +27,7 @@ class ClaimStatus(str, Enum):
     pending_review = "pending_review"
     under_review = "under_review"
     flagged = "flagged"
+    manual_review = "manual_review"
     action_required = "action_required"
     agent_approved = "agent_approved"
     settlement_accepted = "settlement_accepted"
