@@ -775,6 +775,8 @@ def test_otp_send_rate_limit_and_verification_replay_protection(monkeypatch):
                 "id": "otp-1",
                 "identifier": "customer@example.invalid",
                 "channel": "email",
+                "purpose": "login",
+                "user_id": "customer-1",
                 "attempts": 0,
                 "is_verified": False,
                 "created_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
@@ -827,6 +829,32 @@ def test_otp_send_rate_limit_and_verification_replay_protection(monkeypatch):
     )
     assert first.access_token == "test-access-token"
     assert database.update_filters[0]["expires_at"].startswith("gt.")
+
+    wrong_purpose_database = ReplayDatabase()
+    wrong_purpose_database.otp["purpose"] = "signup"
+    otp_module.db = wrong_purpose_database
+    with pytest.raises(HTTPException) as purpose_error:
+        asyncio.run(
+            otp_module.verify_otp(
+                OtpVerifyRequest(identifier="customer@example.invalid", otp_code="184205", challenge_id="otp-1")
+            )
+        )
+    assert purpose_error.value.status_code == 400
+    assert not wrong_purpose_database.otp["is_verified"]
+
+    wrong_user_database = ReplayDatabase()
+    wrong_user_database.otp["user_id"] = "another-customer"
+    otp_module.db = wrong_user_database
+    with pytest.raises(HTTPException) as user_binding_error:
+        asyncio.run(
+            otp_module.verify_otp(
+                OtpVerifyRequest(identifier="customer@example.invalid", otp_code="184205", challenge_id="otp-1")
+            )
+        )
+    assert user_binding_error.value.status_code == 400
+    assert not wrong_user_database.otp["is_verified"]
+
+    otp_module.db = database
     with pytest.raises(HTTPException) as replay_error:
         asyncio.run(
             otp_module.verify_otp(
@@ -948,6 +976,8 @@ def test_signup_otp_creates_customer_only_after_verification_and_profile_failure
                 "id": "signup-challenge-1",
                 "identifier": "new@example.invalid",
                 "channel": "email",
+                "purpose": "signup",
+                "user_id": None,
                 "otp_code": otp_module._otp_tag(
                     code,
                     identifier="new@example.invalid",
@@ -1045,6 +1075,8 @@ def test_verified_signup_forces_customer_role_and_returns_session_only_after_per
                 "id": challenge_id,
                 "identifier": "new@example.invalid",
                 "channel": "email",
+                "purpose": "signup",
+                "user_id": None,
                 "otp_code": otp_module._otp_tag(
                     code,
                     identifier="new@example.invalid",
