@@ -1,5 +1,7 @@
 > **Ported evaluation workspace.** This folder was copied from the original `models` branch (source commit `4c4f8eadc380a1a6458bf0a2905c9ffedb214251`). The scores documented below are inherited from that branch and were **not recomputed** during the port. Model checkpoints and test datasets are intentionally not committed here.
 
+> **Path adjustment:** these scripts now live under `model-evaluation/`. From the repository root, invoke the runner with `python model-evaluation/run_local_pipeline.py --images ./my_photos --project-root ./model-evaluation --output ./model-evaluation/local_results`. Place authorized local checkpoints under `model-evaluation/models/yolov11m/best.pt`; that file is ignored and is not in this branch. Install this folder's `requirements.txt` into an isolated environment before running.
+
 # ClaimPilot — Automated Motor Insurance Claim Processing
 
 ClaimPilot is an AI-powered pipeline for processing motor insurance claims.
