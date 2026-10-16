@@ -105,6 +105,6 @@ def test_foreign_key_indexes_are_kept_in_a_follow_up_migration():
     sql = _read_migration(FK_INDEXES)
     compact_sql = "".join(sql.split())
     assert "idx_otp_verifications_user_id" in sql
-    assert "on public.otp_verifications(user_id)" in compact_sql
+    assert "onpublic.otp_verifications(user_id)" in compact_sql
     assert "idx_policies_assigned_agent_id" in sql
-    assert "on public.policies(assigned_agent_id)" in compact_sql
+    assert "onpublic.policies(assigned_agent_id)" in compact_sql
