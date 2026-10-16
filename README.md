@@ -1,183 +1,254 @@
-# ClaimPilot AI â€” Motor Insurance Claims Platform
+# ClaimPilot AI
 
-**ClaimPilot** is an AI-powered motor insurance claims management system that connects policyholders with insurance adjusters to streamline claim filing, AI damage detection, and settlement approval. Built for a hackathon demo on Oct 24, 2026.
+AI-assisted motor insurance claim assessment with vehicle-damage detection and cross-claim fraud analysis.
 
----
+ClaimPilot combines a React web application, a FastAPI backend, Supabase authentication/database/object storage, and computer-vision models. The application supports customer claim submission and evidence upload, AI-assisted assessment, and agent review. **AI assessments and repair-cost estimates are decision support, not guarantees or automatic payouts.**
 
-## Tech Stack
+> **Project status:** This README documents the intended project layout and local development workflow. It does not certify that a live Supabase deployment, email/SMS delivery, private evidence access, or the complete customer-to-agent flow is currently working. Verify those integrations in your own environment.
 
-| Component | Technology | Details |
-|---|---|---|
-| **Backend** | FastAPI (Python 3.11+) | REST API with JWT auth, OTP verification, claim CRUD, AI assessment triggers |
-| **Frontend** | React 19 + TypeScript + Vite | Single-page app with claim submission, dashboard, agent workbench, 3D damage mesh viewer |
-| **Database & Auth** | Supabase | PostgreSQL database, GoTrue authentication, Storage for claim evidence |
-| **AI/ML** | YOLOv11m, RT-DETR | Ultralytics models for vehicle damage detection from images |
-| **Email** | SendGrid API + SMTP | Configurable via environment variables, falls back to console logging |
-| **SMS** | Twilio + Fast2SMS | Both providers supported, configurable via environment variables |
+## Contents
 
-## How It Works (Simple Workflow)
+- [Project layout](#project-layout)
+- [Core workflow](#core-workflow)
+- [Requirements](#requirements)
+- [Local setup](#local-setup)
+- [Run the application](#run-the-application)
+- [Tests and quality checks](#tests-and-quality-checks)
+- [API overview](#api-overview)
+- [ML notes](#ml-notes)
+- [Security and data handling](#security-and-data-handling)
+- [Troubleshooting](#troubleshooting)
+- [Project milestones](#project-milestones)
 
-### 1. Customer Files a Claim (`/customer`)
-- **Simple Stepper Form:** The customer enters vehicle details, incident location, policy info, and registration verification (HSRP, Engine/Chassis numbers, Driver's License photo).
-- **Uploads Evidence:** The customer uploads multiple photos and video recordings of the vehicle damage.
+## Project layout
 
-### 2. AI Assessment & Customer Review
-- **Instant Visual Breakdown:** The customer views their AI Damage Assessment (`/customer/claims/:id`), showing detected damage areas, severity badges, and estimated repair cost ranges.
-- **Multi-Media Evidence Viewer:** The customer can click or tap through a gallery of all uploaded photos and watch uploaded video evidence to see how the AI evaluated their vehicle.
+The backend-connected application lives in `insurance-pro/`. Use that frontend for integration work; do not substitute a separate mock or prototype frontend.
 
-### 3. Agent Review & Adjudication (`/agent`)
-- **Claims Queue:** The insurance agent sees new claims in a real-time queue with priority flags.
-- **Deep Inspection:** The agent inspects damage bounding boxes, 3D deformation topology, AI surface normals, and a prototype fraud score (0–100, not a percentage) with a risk level.
-  - The score combines three signals: cross-claim pHash image matching, narrative-versus-detected severity consistency, and—when claimant identity is available—whether the claimant has at least three claims in a rolling 183-day window.
-  - An OpenAI classifier is optional and runs only when the OpenAI provider, API key, and client are available. Otherwise, or if the call fails, the narrative check uses a deterministic keyword fallback. The live OpenAI path is unverified.
-  - The score supports human review. It is not proof of fraud and does not make autonomous claim decisions.
-- **Adjudication:** The agent can **Approve** (setting a settlement amount), **Reject** (with justification notes), or **Request Information** from the customer.
-
-### 4. Settlement & Finance Handoff
-- **Client Response:** If approved, the customer receives the offer on their portal and can **Approve** or **Reject** the settlement offer.
-- **Final Authorization:** When the customer approves, the agent sees the response live on their dashboard and clicks **"OK to Proceed"** to send the claim to the finance team for payment payout.
-
----
-
-## Project Structure
-
-```
-ClaimPilot/
-â”œâ”€â”€ insurance-pro/
-â”‚   â”œâ”€â”€ backend/          # FastAPI backend (port 8000)
-â”‚   â”‚   â”œâ”€â”€ app/          # Application code
-â”‚   â”‚   â”‚   â”œâ”€â”€ api/      # API endpoints
-â”‚   â”‚   â”‚   â”œâ”€â”€ core/     # Configuration, security
-â”‚   â”‚   â”‚   â”œâ”€â”€ db/       # Supabase client
-â”‚   â”‚   â”‚   â”œâ”€â”€ models/   # ML weights
-â”‚   â”‚   â”‚   â””â”€â”€ services/ # AI runner, email
-â”‚   â”‚   â”œâ”€â”€ .env.example  # Backend environment template
-â”‚   â”‚   â”œâ”€â”€ Dockerfile    # Backend container
-â”‚   â”‚   â””â”€â”€ requirements.txt
-â”‚   â””â”€â”€ frontend/
-â”‚       â””â”€â”€ ClaimPilot/   # React/Vite frontend (port 5173)
-â”œâ”€â”€ scripts/              # Demo scripts
-â”‚   â”œâ”€â”€ preflight.ps1     # Pre-demo validation
-â”‚   â”œâ”€â”€ start_demo.ps1    # Start all services
-â”‚   â””â”€â”€ stop_demo.ps1     # Stop all services
-â””â”€â”€ docs/                 # Documentation
-    â”œâ”€â”€ ARCHITECTURE.md    # System architecture
-    â”œâ”€â”€ DEMO_RUNBOOK.md    # Demo execution guide
-    â””â”€â”€ SECURITY_SCAN.md    # Security audit findings
+```text
+ClaimPilot-Final/
+├── insurance-pro/
+│   ├── backend/                 # FastAPI API, auth, claims, storage, inference
+│   │   ├── app/
+│   │   ├── tests/
+│   │   ├── .env.example
+│   │   └── README.md
+│   └── frontend/
+│       └── ClaimPilot/          # Connected React + Vite + TypeScript frontend
+│           ├── src/
+│           ├── package.json
+│           └── README.md
+├── ml/                          # Model evaluation and research utilities
+├── docs/                        # Project documentation, where present
+├── README.md
+└── ...
 ```
 
----
+Some model checkpoints and local configuration files may not be committed. Check the actual checkout before assuming a file exists.
 
-## Quick Start
+## Core workflow
 
-### Prerequisites
+The target end-to-end demonstration is:
 
-- Python 3.11+
-- Node.js 18+
-- Git
+1. A customer signs in.
+2. The customer submits a claim with real, required policy, vehicle, incident, and driver details.
+3. Evidence files are uploaded and registered against the claim.
+4. The backend runs the configured damage-detection model.
+5. Available damage detections and fraud-analysis findings are persisted and shown.
+6. An authorized agent reviews the claim and submits a decision.
+7. The customer can view the persisted decision/status.
 
-### Demo Launch (Recommended)
+Do not replace missing API responses or model outputs with invented detections, confidence values, fraud scores, cost estimates, images, or success messages. If a value is unavailable, show that it is unavailable. Claim approval must not be described as a payout having been initiated or completed.
 
-Run the one-command demo launcher:
+## Requirements
+
+Install these tools before starting:
+
+- Python 3.11 or the Python version supported by the backend dependencies.
+- Node.js and npm compatible with the frontend lockfile.
+- Git.
+- A configured Supabase project for live authentication, database, and storage integration.
+- The model checkpoint required by the backend configuration, if running real inference locally.
+
+Exact package versions should come from the repository's dependency and lock files rather than from this README.
+
+## Local setup
+
+Run commands from the indicated directory in PowerShell. Keep backend and frontend terminals separate.
+
+### 1. Get the code
 
 ```powershell
-# From the repo root (wt-ops branch)
-.\scripts\start_demo.ps1
+git clone <repository-url>
+Set-Location .\ClaimPilot
 ```
 
-This automatically:
-1. Validates Python/Node versions
-2. Checks required `.env` files and variables
-3. Starts the FastAPI backend on port 8000
-4. Builds and starts the React frontend on port 5173
-5. Opens the browser to http://localhost:5173
+If the repository was already cloned, open the project root instead. The expected root contains `insurance-pro\backend` and `insurance-pro\frontend\ClaimPilot`.
 
-To stop all services:
+### 2. Configure the backend
 
 ```powershell
-.\scripts\stop_demo.ps1
+Set-Location .\insurance-pro\backend
+Copy-Item .env.example .env
 ```
 
-### Manual Setup
+Open `.env` locally and fill in the required values using the comments in `.env.example` and the backend README. Do not commit `.env`, paste its contents into chat, or put secrets in screenshots or logs.
 
-#### Backend
+Create and activate a virtual environment:
 
-```bash
-# Create virtual environment
-cd insurance-pro/backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-
-# Set up environment
-cp .env.example .env
-# Edit .env with your Supabase credentials
-
-# Start server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Required backend environment variables:**
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `JWT_SECRET`
+If the repository's dependency file has a different name, follow the file that is actually present in `insurance-pro\backend`; do not create a new dependency list from memory.
 
-**Optional backend environment variables:**
-- `SENDGRID_API_KEY` or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
-- `FAST2SMS_API_KEY`
+Before using a live Supabase project, an authorized project owner should verify the deployed schema, migrations, Row Level Security (RLS) policies, storage bucket privacy, and access policies. Do not run schema scripts or database writes against a shared or production project without explicit approval.
 
-#### Frontend
+### 3. Configure the connected frontend
 
-```bash
-cd insurance-pro/frontend/ClaimPilot
+Open a second PowerShell terminal from the repository root:
+
+```powershell
+Set-Location .\insurance-pro\frontend\ClaimPilot
+Copy-Item .env.example .env
 npm ci
+```
+
+If `insurance-pro\frontend\ClaimPilot\.env.example` is absent in the checkout, inspect the frontend README and configuration files to identify the supported variable names before creating `.env`. Do not guess between similarly named API URL variables.
+
+Set the frontend API base URL to the locally running backend using the exact variable name documented by the checked-out frontend configuration. Vite embeds `VITE_*` values at build time; restart the dev server after changing local environment configuration.
+
+## Run the application
+
+### Backend
+
+From `insurance-pro\backend`, with the virtual environment activated and local environment configured:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+The default local API address is usually `http://127.0.0.1:8000`; confirm the actual host and port in the backend startup output. If the app exposes OpenAPI documentation, visit `http://127.0.0.1:8000/docs`.
+
+### Frontend
+
+From `insurance-pro\frontend\ClaimPilot`:
+
+```powershell
 npm run dev
 ```
 
-**Required frontend environment variables:**
-- `VITE_API_BASE_URL=http://localhost:8000`
+Open the local URL printed by Vite. Keep the backend running in its own terminal.
 
----
+For a production-like frontend preview, use the scripts declared in `package.json` (commonly `npm run build` followed by `npm run preview`). Use the actual scripts in the checked-out package file as the source of truth.
 
-## Known Limitations
+## Tests and quality checks
 
-1. **pHash Fraud Engine** â€” Implemented with cross-claim image similarity detection using perceptual hashing. Duplicate and near-duplicate images are flagged based on a configurable distance threshold. The `fraud_score` combines pHash duplicate detection, narrative-severity consistency checks, and claimant history analysis. Tested with automated unit tests.
+### Backend tests
 
-2. **Narrative-Severity Check** â€” LLM-based text classification of claim descriptions is planned but not yet built.
+From `insurance-pro\backend`:
 
-3. **Weight Files** â€” YOLOv11m (39 MB) and RT-DETR (64 MB) model files must be present in `insurance-pro/backend/app/models/weights/` for AI inference to work. These are large files and should be managed with Git LFS.
+```powershell
+python -m pytest -q
+```
 
-4. **Container Orchestration** â€” While a Dockerfile exists for the backend, there are no Docker Compose or Kubernetes manifests for full-stack containerized deployment.
+### Frontend checks
 
-5. **Email Fallback** â€” If neither SendGrid nor SMTP is configured, OTP codes and notifications print to the backend terminal instead of being sent to users.
+From `insurance-pro\frontend\ClaimPilot`:
 
-6. **SMS Fallback** â€” If neither Twilio nor Fast2SMS is configured, SMS notifications fall back to console logging.
+```powershell
+npm ci
+npx tsc --noEmit
+npm run build
+npm run lint
+```
 
----
+The available TypeScript script and lint command can vary by branch; if a command is not defined, inspect `package.json` and use the repository's configured equivalent.
 
-## Scripts
+A recorded integrated-backend run on 15 October 2026 reported **97 passed, 9 deprecation warnings**. This is a historical result for that local tree, not a guarantee for another branch or checkout. Run the commands above after changing code and report the exact output. Passing unit tests does not establish that live Supabase, email/SMS delivery, storage permissions, model files, or the full E2E flow work.
 
-| Script | Description |
+## API overview
+
+The following route families were observed in the project code; request/response schemas and live behavior must be checked against the running version.
+
+| Purpose | Route |
 |---|---|
-| `scripts/preflight.ps1` | Validates all prerequisites: Python/Node versions, .env files, required variable names, weight files, port availability, Supabase reachability |
-| `scripts/start_demo.ps1` | One-command demo launcher â€” validates, starts backend and frontend, opens browser |
-| `scripts/stop_demo.ps1` | Stops all processes started by `start_demo.ps1` |
+| Create/list claims | `POST /claims`, `GET /claims` |
+| Retrieve a claim | `GET /claims/{claim_id}` |
+| Retrieve claim AI analysis | `GET /claims/{claim_id}/ai-analysis` |
+| Customer portal decision | `POST /claims/portal/decision` |
+| Request a storage upload URL | `POST /storage/presigned-url` |
+| Register uploaded evidence | `POST /storage/evidence` |
+| Agent claim queue | `GET /agent/claims` |
+| Agent claim details | `GET /agent/claims/{claim_id}` |
+| Agent action | `POST /agent/claims/{claim_id}/action` |
 
----
+The route list is a navigation aid, not an API contract. Inspect the current FastAPI schemas and generated OpenAPI document before integrating a client.
 
-## Documentation
+## ML notes
 
-- [Architecture Overview](docs/ARCHITECTURE.md) â€” System components, data flow, and Mermaid diagrams
-- [Demo Runbook](docs/DEMO_RUNBOOK.md) â€” Step-by-step guide for running the demo
-- [Security Scan Results](docs/SECURITY_SCAN.md) â€” Findings and remediation steps
-- [Large Files Report](docs/LARGE_FILES.md) â€” Files over 50 MB and Git LFS recommendations
+- The project includes YOLO and RT-DETR vehicle-damage detection work.
+- The target damage categories include crack, dent, glass shatter, broken lamp, scratch, and flat tire; confirm the class names and ordering for the exact checkpoint being loaded.
+- Perceptual hashing (pHash) is used for cross-claim duplicate-image/fraud analysis.
+- Research scripts for depth estimation or 3D reconstruction may exist under `ml/`; do not assume they are exposed as working backend API features.
+- Confirm the configured model-weight path and run inference on real sample images before a demo.
+- Report evaluation metrics only with the dataset, split, class ordering, and evaluation method. Metrics from different splits or class orderings are not directly comparable.
+- Any repair-cost estimate must be labelled as indicative unless calibrated and validated. It must not independently determine a payout.
 
----
+## Security and data handling
 
-## License
+- Never commit `.env` files, passwords, API keys, JWTs, service-role keys, OTPs, signed URLs, or customer evidence.
+- Treat previously exposed credentials as compromised and rotate them through the relevant provider. Do not reproduce them in documentation or rewrite Git history casually.
+- Use customer/agent/admin authorization checks on every protected claim and evidence operation.
+- Confirm evidence storage is private where required and that reads use properly scoped authorization or short-lived signed URLs.
+- OTP flows must enforce expiry, attempt limits, resend throttling, and one-time consumption. Development OTP behavior must never be enabled in production.
+- CORS origins and backend secrets must be configured explicitly for each environment.
+- Do not log passwords, OTPs, authorization headers, signed URLs, or sensitive customer data.
+- Never run database migrations or write operations against shared Supabase environments without the project owner's approval.
+- A successful agent decision is not proof that money has been transferred. The product does not perform autonomous payouts.
 
-Hackathon demo project â€” code freeze Oct 20, 2026.
+## Troubleshooting
+
+**Frontend cannot reach the backend**
+- Confirm the backend is running and note its actual URL.
+- Check the API base URL variable name used by the current frontend source.
+- Restart Vite after changing environment variables.
+- Check browser network errors and backend logs without sharing secrets.
+
+**Authentication or OTP fails**
+- Verify backend configuration and the configured email/SMS provider in the local environment.
+- Check expiry, rate-limit, and provider error logs without printing OTPs or credentials.
+- Do not use a fixed development OTP against production.
+
+**Evidence upload succeeds but analysis cannot read the file**
+- Check that upload and evidence-catalog registration both completed.
+- Verify the stored object path, bucket privacy, and authorized read mechanism.
+- Do not switch to public evidence URLs as a workaround for an authorization problem.
+
+**Analysis is missing or looks suspicious**
+- Confirm the configured checkpoint exists and loads.
+- Check backend inference logs and the API response.
+- Show missing results as unavailable; do not substitute sample detections or fabricated costs.
+
+**Tests fail on a different branch**
+- Confirm the current directory, branch, and dependency environment.
+- Use the dependency lockfiles and exact test output to diagnose the failure.
+- Preserve existing uncommitted changes; do not reset or clean the worktree to make tests pass.
+
+## Project milestones
+
+The project context records an internal code freeze of **20 October 2026** and the MIT India Hackathon finale on **24 October 2026 in New Delhi**. Treat those as planning dates, not evidence that any particular feature is complete.
+
+## Contributing and change control
+
+Before making changes:
+
+1. Confirm the repository root, current branch, and working-tree status.
+2. Read the relevant backend/frontend README and current project status notes.
+3. Make the smallest scoped change that addresses the issue.
+4. Run relevant tests and capture exact results.
+5. Report what changed, what was tested, and what remains unverified.
+
+Preserve uncommitted work. Do not reset, rebase, merge, push, delete files, change branches, or modify databases without explicit authorization.
