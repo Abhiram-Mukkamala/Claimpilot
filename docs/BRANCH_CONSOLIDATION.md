@@ -31,6 +31,10 @@ The new repository's `main` is a snapshot of remote `test/e2e-demo-smoke` at `26
 | `Backend---Work` / `ayaan-frontend` | Same remote commit SHA | Duplicate pointers, not separate workstreams. |
 | `legacy` / `tests/model-eval` | Same remote commit SHA in the recorded branch inventory | Historical/reference only unless a specific missing test is found. |
 
+## Folder-layout caution
+
+The snapshot intentionally preserves both frontend trees: root-level `src/` (prototype) and the connected app under `insurance-pro/frontend/ClaimPilot/`. Confirm the actual build/deployment target is the connected app before removing the root prototype. Do not delete either tree without checking imports, package scripts, deployment configuration and team worktrees.
+
 ## Safe integration procedure
 
 1. Compare the baseline to one source feature branch at a time and review its complete changed-file list.
