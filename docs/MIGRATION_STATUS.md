@@ -22,6 +22,10 @@ Destination: https://github.com/Abhiram-Mukkamala/Claimpilot (private)
 - Selected Ayaan UI in commit `5724e85085ea3f981a6fed9382e347786b9f8997`: About page + CSS, onboarding modal/steps/CSS/state store, and CustomerLayout onboarding wiring. Review follow-up fixes: `12f8c78f7dd9143ca2fb53f05ced60f22d55379c` corrects per-user onboarding completion persistence; `a0fbc909ae9fb275f0bd1ca1366d27a2246cc4de` fixes the About page team-section anchor; `e9f4bea8cbe8eb5ae817c08b5e1dd5f770b84e58` adds keyboard focus containment and background-scroll locking to onboarding; `c9307de4a9869765596b8cbe1402d5c44603b5c5` corrects the step-jump controls' accessibility semantics.
 - Only `.env.example` templates; no real `.env` file was migrated.
 
+## Automated regression result (17 October 2026)
+
+GitHub Actions run for the integrated backend/schema regression suite completed successfully: **146 passed, 10 warnings in 2.71 seconds**. The run used dummy Supabase credentials and mocked test dependencies; it did not create or modify demo data in the live Supabase project. Warnings are FastAPI/Starlette/httpx deprecations and are non-failing. The workflow action versions were then updated to current Node 24-compatible major versions; that follow-up workflow run is separate from this green 146-test result.
+
 ## Local security work not included
 
 Previously reported uncommitted Phase 1 security changes in local worktrees `C:\Projects\claimbot AI\wt-impl-phase1` and `ClaimPilot-Final` were not present as remote commits in the inspected source tree. Those modifications were not copied into this migration. Review and apply them deliberately from the local worktree; preserve staged/unstaged work and backups. Do not replace files wholesale without comparing the patch.
