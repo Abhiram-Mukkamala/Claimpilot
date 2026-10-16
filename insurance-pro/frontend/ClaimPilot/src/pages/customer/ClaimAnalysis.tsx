@@ -428,7 +428,11 @@ export const ClaimAnalysis = () => {
                       <span className="text-2xl font-bold">₹{analysis.totalEstimatedCost.min.toLocaleString()} – ₹{analysis.totalEstimatedCost.max.toLocaleString()}</span>
                     )}
                     <p className="text-xs text-muted mt-2">
-                      {claim.status === 'Approved' ? 'Final approved claim payout.' : '*AI-generated cost estimates are indicative and may vary following assessment and approval by a qualified engineer.'}
+                      {claim.status === 'Approved'
+                        ? 'Final approved claim payout.'
+                        : analysis.estimateBasis
+                          ? `Estimate basis: ${analysis.estimateBasis}. This is indicative, uncalibrated guidance and is not a settlement guarantee.`
+                          : '*AI-generated cost estimates are indicative and may vary following assessment and approval by a qualified engineer.'}
                     </p>
                   </div>
                 )}
