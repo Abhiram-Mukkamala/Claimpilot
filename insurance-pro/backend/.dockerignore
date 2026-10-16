@@ -1,0 +1,79 @@
+# Docker ignore file for claimbot AI backend
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+.env.local
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data and caches
+*.sqlite
+*.db
+data/
+
+# Node (if present)
+node_modules/
+npm-debug.log*
+
+# Note: weights directory is NOT ignored - it's copied in a separate layer
+# to avoid image layer ordering problems. See Dockerfile for details.

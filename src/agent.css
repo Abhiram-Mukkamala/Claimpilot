@@ -1,0 +1,323 @@
+/* ============================================================
+   CLAIMPILOT — AGENT PORTAL STYLESHEET (agent.css)
+   Dedicated styling for Agent interface & review workspaces.
+   Builds upon shared tokens and base utilities from index.css.
+   ============================================================ */
+
+/* ============================================================
+   1. AGENT LAYOUT & APP HEADER
+   ============================================================ */
+.agent-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: transparent;
+}
+
+.app-header {
+  border-bottom: 1px solid var(--border);
+  background-color: transparent;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+[data-theme="dark"] .app-header {
+  background: rgba(14, 14, 20, 0.28);
+  backdrop-filter: blur(1px) saturate(20%);
+  -webkit-backdrop-filter: blur(1px) saturate(20%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.app-header-inner {
+  height: 48px;
+}
+
+.app-wordmark {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem 1rem;
+}
+
+.app-main-inner {
+  max-width: 1720px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ============================================================
+   2. AGENT NAVIGATION
+   ============================================================ */
+.nav-link {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0.375rem 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.nav-link.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+/* ============================================================
+   3. AGENT DASHBOARD & METRICS
+   ============================================================ */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.dashboard-layout {
+  display: flex;
+  gap: 1.75rem;
+  align-items: flex-start;
+}
+
+.kpi-card {
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.queue-item {
+  transition: background-color 0.1s;
+}
+
+.activity-item {
+  transition: background-color 0.1s;
+}
+
+/* ============================================================
+   4. AGENT WORKSPACE TABS (AgentClaimDetails)
+   ============================================================ */
+.tab-nav {
+  display: flex;
+  gap: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.5rem 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.tab-btn.active.tab-danger {
+  color: var(--danger);
+  border-bottom-color: var(--danger);
+}
+
+/* ============================================================
+   5. AGENT ACTION BUTTONS (Claim Decision Workflow)
+   ============================================================ */
+.agent-action-btn {
+  border-radius: 9999px;
+  padding: 0.4375rem 1.125rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.agent-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.agent-action-btn.btn-danger {
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.agent-action-btn.btn-danger:hover:not(:disabled) {
+  background-color: rgba(220, 38, 38, 0.16);
+  border-color: var(--danger);
+}
+
+.agent-action-btn.btn-success {
+  background-color: var(--success);
+  border-color: transparent;
+  color: var(--text-inverse);
+}
+
+.agent-action-btn.btn-success:hover:not(:disabled) {
+  background-color: #047857;
+}
+
+.agent-action-btn.btn-secondary {
+  background-color: var(--bg-surface);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.agent-action-btn.btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.agent-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   6. AGENT TABLES & CLAIMS LIST (AgentClaims)
+   ============================================================ */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: rgba(16, 16, 24, 0.25);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+th {
+  padding: 0.5625rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background-color: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.6875rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr.interactive-row {
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+tr.interactive-row:hover {
+  background-color: var(--bg-hover);
+}
+
+tr.selected-row {
+  background-color: var(--accent-dim);
+}
+
+tr.selected-row:hover {
+  background-color: rgba(5, 150, 105, 0.16);
+}
+
+/* ============================================================
+   7. AGENT QUICK INSPECTION DRAWER (AgentClaims)
+   ============================================================ */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 500px;
+  background-color: rgba(16, 16, 24, 0.48);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-left: 1px solid var(--border);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: slideIn 0.2s ease-out forwards;
+}
+
+.drawer-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+/* ============================================================
+   8. AGENT RESPONSIVE STYLES
+   ============================================================ */
+@media (max-width: 900px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-layout {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
