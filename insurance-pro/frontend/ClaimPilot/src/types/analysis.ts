@@ -26,6 +26,8 @@ export interface DamageAnalysis {
   imageUrl?: string;
   damages: DamageArea[];
   totalEstimatedCost: EstimatedCost;
+  /** Explanation and calibration limitation for the displayed estimate. */
+  estimateBasis?: string;
   status?: 'loading' | 'available' | 'partial' | 'unavailable' | 'failed';
 }
 
