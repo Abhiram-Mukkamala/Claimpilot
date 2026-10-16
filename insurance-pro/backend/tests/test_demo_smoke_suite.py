@@ -355,6 +355,7 @@ def test_stage_a_otp_verification_issues_valid_jwt(test_app, mock_db):
         challenge_id="ch-9001",
         created_at=auth_otp._canonical_timestamp(created_at),
     )
+    # Match the persisted purpose/user binding required by the live OTP schema.
     mock_db.otp_verifications.append({
         "id": "ch-9001",
         "identifier": "customer101@claimpilot.test",
