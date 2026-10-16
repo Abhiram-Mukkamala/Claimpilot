@@ -424,13 +424,13 @@ WHERE claim_id = '<paste-claim-B-uuid>';
 
 Before declaring the deployment ready for the frontend demonstration, verify every box:
 
-- [ ] **Supabase Health:** Remote project is active in target region.
-- [ ] **Storage Bucket:** `claim-evidence` exists as a **Private** bucket, permits 50MB file sizes, and is accessible to the backend through configured storage credentials.
-- [ ] **SQL Schemas:** `schema.sql`, `migration_v2.sql`, and `migration_v3_phash.sql` applied.
-- [ ] **Schema Check:** Verification query confirms 6 core tables and 7 critical columns.
+- [x] **Supabase Health:** Project `tiwdktgeqifhumcrwniv` is active in region `ap-south-1`.
+- [x] **Storage Bucket:** `claim-evidence` exists as a **Private** bucket, permits 50 MB files, and has the configured image/video MIME allow-list. Real signed upload/read operations still need an end-to-end check.
+- [x] **SQL Schemas:** the three versioned migrations in `supabase/migrations/` are recorded in the connected project. Do not apply legacy `schema.sql`, `migration_v2.sql`, or `migration_v3_phash.sql` on top.
+- [x] **Schema Check:** eight core tables and critical columns verified; bucket reports `public=false` and `anon`/`authenticated` have no direct table grants. RLS is enabled on app tables.
 - [ ] **Secret Hygiene:** `insurance-pro/backend/.env` created from `.env.example`; `.env` is confirmed in `.gitignore`.
 - [ ] **Dedicated JWT Secret:** Independent 256-bit `JWT_SECRET` generated and loaded by backend.
 - [ ] **Agent Registered:** Agent profile created in `public.profiles`.
-- [ ] **Policy Seed:** `seed_demo.sql` executed with registered agent email.
+- [ ] **Policy Seed:** register a real agent, replace the placeholder in `seed_demo.sql`, verify its profile, then execute the safe seed script. It no longer creates broad authenticated read policies.
 - [ ] **First Claim Tested:** Claim A created, image uploaded via signed URL, AI assessment generated damages.
 - [ ] **Duplicate Detection Verified:** Claim B with duplicate image triggered `Image matches a previously submitted claim` in `claim_fraud_analyses`.
