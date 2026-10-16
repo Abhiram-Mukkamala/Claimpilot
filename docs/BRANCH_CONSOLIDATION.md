@@ -5,7 +5,7 @@ This checklist explains what was intentionally not blindly merged into the new p
 ## Current destination branches
 
 - `main`: selected E2E release snapshot, with the latest `claimpilot` README. This is the intended integration/release branch.
-- `claimpilotayaan`: already present in the destination at `f47c5b67ccaaad751cc408b48fb7417529d7fca2`. It contains Ayaan's onboarding/about snapshot, including a different history. It was not modified here. Do not delete it until all unique work is reviewed and preserved.
+- `claimpilotayaan`: still present at `f47c5b67ccaaad751cc408b48fb7417529d7fca2`. Its About-page/onboarding UI was selectively ported into `main` in commit `5724e85085ea3f981a6fed9382e347786b9f8997`. The branch remains as a reference for other UI differences and must not be deleted until its remaining unique work is accounted for.
 
 These two destination branches have no common ancestor according to GitHub's compare endpoint; do not attempt an automatic merge. Compare their file trees and port selected files/features instead.
 
@@ -17,7 +17,7 @@ The new repository's `main` is a snapshot of remote `test/e2e-demo-smoke` at `26
 
 | Source branch | Work identified in comparison | Decision |
 |---|---|---|
-| `ayaan/claimpilot` / destination `claimpilotayaan` | Connected-frontend onboarding/about, login and customer dashboard changes, plus root-level prototype removals | Review connected app paths against `main`; verify onboarding, routing and auth before selectively porting. |
+| `ayaan/claimpilot` / destination `claimpilotayaan` | Connected-frontend onboarding/about, login and customer dashboard changes, plus root-level prototype removals | **Ported:** About page + CSS, onboarding modal/steps/CSS/store, and `CustomerLayout` wiring. **Still pending:** review Login, CustomerDashboard, and other page differences individually. API/auth/store/smoke files were intentionally kept from `main`; do not merge the branch wholesale. |
 | `ui/onboarding-about` | Alternative onboarding/about implementation, layout, styling and security-library changes in connected app | Compare with Ayaan's version; choose one onboarding implementation, don't combine blindly. |
 | `frontend/new-claim` | Significant connected customer `NewClaim.tsx` changes | Review API contract and claim creation/evidence flow; port only with tests. |
 | `frontend/agent-review` | Connected agent `AgentClaimDetails.tsx` changes | Review agent state transitions, authorization and settlement truthfulness before porting. |
@@ -34,6 +34,10 @@ The new repository's `main` is a snapshot of remote `test/e2e-demo-smoke` at `26
 ## Folder-layout caution
 
 The snapshot intentionally preserves both frontend trees: root-level `src/` (prototype) and the connected app under `insurance-pro/frontend/ClaimPilot/`. Confirm the actual build/deployment target is the connected app before removing the root prototype. Do not delete either tree without checking imports, package scripts, deployment configuration and team worktrees.
+
+## UI port applied on 16 October 2026
+
+Commit: `5724e85085ea3f981a6fed9382e347786b9f8997` (`feat(ui): port Ayaan onboarding and about page design`). This ports the About page design and its stylesheet, the six-step onboarding UI and state store, and the CustomerLayout wiring. The onboarding auto-trigger tracks completion per user/email rather than letting one user's global completion flag suppress onboarding for everyone. The existing `claimsApi.ts`, `authStore.ts`, `Login.tsx`, backend claim/agent endpoints, and smoke-test runner were not changed by this UI port. Tests and build have not yet been run.
 
 ## Safe integration procedure
 
