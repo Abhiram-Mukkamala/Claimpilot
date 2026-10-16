@@ -24,7 +24,7 @@ Destination: https://github.com/Abhiram-Mukkamala/Claimpilot (private)
 
 ## Automated regression result (17 October 2026)
 
-GitHub Actions run for the integrated backend/schema regression suite completed successfully: **146 passed, 10 warnings in 2.71 seconds**. The run used dummy Supabase credentials and mocked test dependencies; it did not create or modify demo data in the live Supabase project. Warnings are FastAPI/Starlette/httpx deprecations and are non-failing. The workflow action versions were then updated to current Node 24-compatible major versions; that follow-up workflow run is separate from this green 146-test result.
+GitHub Actions run for the integrated backend/schema regression suite completed successfully: **146 passed, 10 warnings in 2.71 seconds**. The run used dummy Supabase credentials and mocked test dependencies; it did not create or modify demo data in the live Supabase project. Warnings are FastAPI/Starlette/httpx deprecations and are non-failing. The workflow actions were upgraded to `actions/checkout@v7` and `actions/setup-python@v7` for Node 24 compatibility; the follow-up run also passed 146 tests.
 
 ## Local security work not included
 
