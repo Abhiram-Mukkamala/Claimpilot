@@ -1,4 +1,4 @@
-"""Static contract checks keeping the Supabase migration aligned with the backend."""
+"""Static contract checks keeping Supabase migrations and API enums aligned."""
 from pathlib import Path
 
 
