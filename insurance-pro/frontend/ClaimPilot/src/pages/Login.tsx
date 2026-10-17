@@ -456,24 +456,12 @@ export const Login: React.FC = () => {
     return { label: 'Strong', color: 'var(--success)', width: '100%' };
   };
 
-  const VALID_GLOBAL_EMAIL_DOMAINS = new Set([
-    'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
-    'yahoo.com', 'yahoo.co.in', 'yahoo.co.uk', 'yahoo.ca', 'yahoo.fr', 'yahoo.de', 'ymail.com',
-    'icloud.com', 'me.com', 'mac.com', 'proton.me', 'protonmail.com', 'pm.me',
-    'zoho.com', 'zoho.in', 'aol.com', 'mail.com', 'gmx.com', 'gmx.net',
-    'fastmail.com', 'tutanota.com', 'tutamail.com', 'yandex.com', 'claimpilot.ai'
-  ]);
-
   const isValidEmail = (val: string): boolean => {
     if (!val || typeof val !== 'string') return false;
-    const trimmed = val.trim().toLowerCase();
+    const trimmed = val.trim();
+    // Validate the email shape but leave provider/domain verification to Supabase Auth.
     const basicRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!basicRegex.test(trimmed)) return false;
-    if (trimmed.includes('..')) return false;
-
-    const parts = trimmed.split('@');
-    if (parts.length !== 2) return false;
-    return VALID_GLOBAL_EMAIL_DOMAINS.has(parts[1]);
+    return basicRegex.test(trimmed) && !trimmed.includes('..');
   };
 
   const validateForm = () => {
@@ -481,12 +469,10 @@ export const Login: React.FC = () => {
 
     if (!isSignUp) {
       const isEmailValid = Boolean(email && isValidEmail(email));
-      const isPhoneValid = /^\d{10}$/.test(email.replace(/\D/g, ''));
-      const isIdentifierValid = Boolean(email && (isEmailValid || isPhoneValid));
       const isPasswordValid = Boolean(password && password.length >= 6);
 
-      if (!isIdentifierValid || !isPasswordValid) {
-        newErrors.auth = 'Invalid Email/Mobile or Password';
+      if (!isEmailValid || !isPasswordValid) {
+        newErrors.auth = 'Enter a valid email address and password.';
       }
 
       setErrors(newErrors);
@@ -857,17 +843,17 @@ export const Login: React.FC = () => {
 
               <div>
                 <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                  {isSignUp ? 'Email address' : 'Email or Mobile Number'} {isSignUp && <span style={{ color: 'var(--danger)' }}>*</span>}
+                  Email address {isSignUp && <span style={{ color: 'var(--danger)' }}>*</span>}
                 </label>
                 <input
-                  type={isSignUp ? "email" : "text"}
+                  type="email"
                   className="form-input"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (errors.email || errors.auth) setErrors({ ...errors, email: '', auth: '' });
                   }}
-                  placeholder={isSignUp ? "agent@claimpilot.ai" : "Enter your email or mobile number"}
+                  placeholder={isSignUp ? "agent@claimpilot.ai" : "Enter your email address"}
                   style={{ borderColor: (errors.email || errors.auth) ? 'var(--danger)' : undefined }}
                 />
                 {errors.email && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.email}</p>}
@@ -1084,10 +1070,21 @@ export const Login: React.FC = () => {
                 <button
                   onClick={async () => {
                     try {
-                      const channel: 'email' | 'sms' = email.includes('@') ? 'email' : 'sms';
-                      const res = await authOtpApi.sendOtp(email || phone, channel);
-                      if (res && res.challenge_id) {
+                      if (isSignUp) {
+                        const res = await authOtpApi.sendOtp(email, 'email');
+                        if (!res?.challenge_id) {
+                          throw new Error('The server did not return a verification challenge. Please retry.');
+                        }
                         setChallengeId(res.challenge_id);
+                      } else {
+                        // Login OTPs are tied to a password-authenticated user and must
+                        // be re-issued through /auth/login, not the signup-only /auth/otp/send route.
+                        const res = await authApi.login({ email, password });
+                        const nextChallengeId = res.otp_details?.challenge_id || res.challenge_id;
+                        if (!res.requires_otp || !nextChallengeId) {
+                          throw new Error('Could not create a new login verification challenge. Please sign in again.');
+                        }
+                        setChallengeId(nextChallengeId);
                       }
                       setResendTimer(42);
                       setOtpError(false);
