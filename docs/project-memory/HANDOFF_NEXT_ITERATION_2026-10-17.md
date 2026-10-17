@@ -19,7 +19,7 @@
 - Current default branch is `claimpilot`, not `main`.
 - Last verified default head: `7afc541910fa115b4e95132dc3e067c72cf2690f`.
 - Last verified tracked file count: 205.
-- All 205 source-default file paths exist on destination `main`; destination had 20 additional file paths. Shared-file content differs for some intentionally adapted files.
+- At the original snapshot migration, all 205 source-default paths were copied to destination `main`, with 20 additional paths. On 17 October 2026, the duplicate root-level prototype app paths were intentionally removed from destination `main` (60 files: root `src/`, `public/`, package manifests and root Vite/TypeScript configs); all 60 blob SHAs were verified identical in `shreyasshah707/ClaimPilot` branch `claimpilot`, which remains the preservation copy.
 - The repos are snapshot-based and do not have fully mirrored histories. Do not assume a wholesale merge of old branches will work.
 - Original repo was not modified; don't write to it unless the user explicitly asks.
 
@@ -101,7 +101,7 @@ The frontend TypeScript check, production build and live app have **not** been v
 - `backend/cost-estimator`: service, cost table and tests ported. Re-run test suite; do not copy its old insecure raw-URL/TLS code.
 - `frontend/agent-review`: **not ported**. Canonical `AgentClaimDetails.tsx` differs; branch also adds `docs/UI_PORT_ANALYSIS.md`.
 - `frontend/new-claim`: **not ported**. Canonical customer `NewClaim.tsx` differs.
-- `frontend/login` and `frontend/login3`: same root-prototype `src/pages/Login.tsx` variant. Don't merge both. Decide whether any useful behavior belongs in canonical `insurance-pro/frontend/ClaimPilot/src/pages/Login.tsx`; root `src/` is a prototype.
+- `frontend/login` and `frontend/login3`: same prototype `src/pages/Login.tsx` variant in the original source repo. Don't merge both. The duplicate root-level prototype has been removed from destination `main` and remains preserved in `shreyasshah707/ClaimPilot`; port only API-compatible behavior into `insurance-pro/frontend/ClaimPilot/src/pages/Login.tsx`.
 - `ui/onboarding-about`: partially ported, as above; don't merge wholesale.
 - `tests/smoke-seed`: every file path exists in destination `main`; no commits ahead of original default. Current seed/smoke files evolved deliberately.
 - `tests/model-eval`: every file path exists in destination `main`; no commits ahead of original default. This is an older snapshot, not a missing independent feature set.

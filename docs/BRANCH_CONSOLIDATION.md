@@ -33,7 +33,7 @@ The new repository's `main` is a snapshot of remote `test/e2e-demo-smoke` at `26
 
 ## Folder-layout caution
 
-The snapshot intentionally preserves both frontend trees: root-level `src/` (prototype) and the connected app under `insurance-pro/frontend/ClaimPilot/`. Confirm the actual build/deployment target is the connected app before removing the root prototype. Do not delete either tree without checking imports, package scripts, deployment configuration and team worktrees.
+The deployment repository now keeps only the connected frontend under `insurance-pro/frontend/ClaimPilot/`. The duplicate root-level prototype (`src/`, root `public/`, package manifests, Vite config, and TypeScript configs) was removed from this repository on 17 October 2026 after verifying that all 60 files were byte-identical by Git blob SHA to `shreyasshah707/ClaimPilot` on its `claimpilot` branch. That original repository remains the preservation copy. Do not port prototype/mock API code into the connected app.
 
 ## UI port applied on 16 October 2026
 
