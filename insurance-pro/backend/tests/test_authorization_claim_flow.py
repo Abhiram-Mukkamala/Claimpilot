@@ -743,6 +743,32 @@ def _load_otp_module(monkeypatch):
     return module
 
 
+def test_production_otp_fails_closed_without_delivery_provider(monkeypatch):
+    from app.schemas.claim import OtpChannel, OtpSendRequest
+
+    otp_module = _load_otp_module(monkeypatch)
+    otp_module._environment = "production"
+    otp_module._dev_fixed_code = None
+    monkeypatch.setattr(otp_module.settings, "SENDGRID_API_KEY", None)
+    monkeypatch.setattr(otp_module.settings, "SENDGRID_FROM_EMAIL", None)
+
+    class DatabaseMustNotBeTouched:
+        async def select(self, *_args, **_kwargs):
+            pytest.fail("OTP must fail before writing a challenge without a provider")
+
+    otp_module.db = DatabaseMustNotBeTouched()
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            otp_module.issue_otp(
+                OtpSendRequest(identifier="customer@example.invalid", channel=OtpChannel.email),
+                BackgroundTasks(),
+                purpose="signup",
+            )
+        )
+    assert error.value.status_code == 503
+    assert "delivery is not configured" in error.value.detail.lower()
+
+
 def test_otp_send_rate_limit_and_verification_replay_protection(monkeypatch):
     from app.schemas.claim import OtpChannel, OtpSendRequest, OtpVerifyRequest
 

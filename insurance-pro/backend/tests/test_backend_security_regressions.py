@@ -279,10 +279,11 @@ def test_claim_route_exception_detail_is_sanitized_and_correlated(caplog):
     assert "DATABASE-DETAIL-CANARY" not in str(detail)
 
 
-def test_email_service_logs_no_recipient_subject_or_message_data(caplog, monkeypatch):
+def test_email_service_fails_closed_without_provider_and_logs_no_message_data(caplog, monkeypatch):
     from app.services.email import _dispatch_email
 
-    monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
+    monkeypatch.setattr(settings, "SENDGRID_API_KEY", None)
+    monkeypatch.setattr(settings, "SENDGRID_FROM_EMAIL", None)
     sensitive_values = (
         "customer@example.invalid",
         "CLAIM-CANARY-17",
@@ -290,7 +291,7 @@ def test_email_service_logs_no_recipient_subject_or_message_data(caplog, monkeyp
         "NARRATIVE-CANARY-43",
     )
     with caplog.at_level(logging.INFO, logger="claimpilot.email"):
-        asyncio.run(
+        delivered = asyncio.run(
             _dispatch_email(
                 sensitive_values[0],
                 f"Subject {sensitive_values[1]}",
@@ -299,6 +300,65 @@ def test_email_service_logs_no_recipient_subject_or_message_data(caplog, monkeyp
             )
         )
 
+    assert delivered is False
     for value in sensitive_values:
         assert value not in caplog.text
-    assert "event=email.mock_dispatch outcome=completed" in caplog.text
+    assert "event=email.dispatch outcome=not_configured" in caplog.text
+    assert "event=email.mock_dispatch outcome=completed" not in caplog.text
+
+
+def test_supabase_readiness_passes_only_when_database_and_otp_are_configured(monkeypatch):
+    main_module = _load_main_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("OTP_DEV_FIXED_CODE", raising=False)
+    monkeypatch.setattr(main_module.settings, "SENDGRID_API_KEY", "unit-test-key")
+    monkeypatch.setattr(main_module.settings, "SENDGRID_FROM_EMAIL", "noreply@example.invalid")
+
+    async def reachable_select(table, params=None, single=False):
+        assert table == "profiles"
+        assert params == {"select": "id", "limit": "1"}
+        assert single is False
+        return []
+
+    monkeypatch.setattr(main_module.db, "select", reachable_select)
+    response = TestClient(main_module.app).get("/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "dependencies": {"database": "reachable", "email_otp": "configured"},
+    }
+
+
+def test_supabase_readiness_fails_when_database_is_unavailable(monkeypatch):
+    main_module = _load_main_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(main_module.settings, "SENDGRID_API_KEY", "unit-test-key")
+    monkeypatch.setattr(main_module.settings, "SENDGRID_FROM_EMAIL", "noreply@example.invalid")
+
+    async def failed_select(*_args, **_kwargs):
+        raise RuntimeError("private database diagnostics must not escape")
+
+    monkeypatch.setattr(main_module.db, "select", failed_select)
+    response = TestClient(main_module.app).get("/health/ready")
+    assert response.status_code == 503
+    assert response.json()["dependencies"]["database"] == "unavailable"
+    assert "private database diagnostics" not in response.text
+
+
+def test_supabase_readiness_fails_in_production_without_email_provider(monkeypatch):
+    main_module = _load_main_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("OTP_DEV_FIXED_CODE", raising=False)
+    monkeypatch.setattr(main_module.settings, "SENDGRID_API_KEY", None)
+    monkeypatch.setattr(main_module.settings, "SENDGRID_FROM_EMAIL", None)
+
+    async def reachable_select(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(main_module.db, "select", reachable_select)
+    response = TestClient(main_module.app).get("/health/ready")
+    assert response.status_code == 503
+    assert response.json()["dependencies"] == {
+        "database": "reachable",
+        "email_otp": "not_configured",
+    }

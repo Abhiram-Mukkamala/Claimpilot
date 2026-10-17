@@ -12,6 +12,7 @@ from app.core.request_logging import log_route_exception
 logger = logging.getLogger("claimpilot.api")
 
 from app.core.config import settings
+from app.db.supabase import db
 from app.api.v1 import api_v1_router
 
 # Initialize FastAPI application
@@ -110,14 +111,64 @@ async def root_health():
         "status": "online",
         "service": settings.PROJECT_NAME,
         "version": "1.0.0",
-        "supabase_connected": True,
         "docs_url": "/docs"
     }
 
 
 @app.get("/health", summary="Liveness Probe", tags=["System Diagnostics"])
 async def health_check():
+    # Liveness deliberately does not depend on downstream services.
     return {"status": "healthy"}
+
+
+@app.get("/health/ready", summary="Supabase and OTP readiness probe", tags=["System Diagnostics"])
+async def readiness_check():
+    """Verify backend Data API access and required email-OTP configuration."""
+    try:
+        rows = await db.select("profiles", params={"select": "id", "limit": "1"})
+        if not isinstance(rows, list):
+            raise RuntimeError("Supabase Data API returned an unexpected response")
+    except Exception as exc:
+        logger.warning(
+            "event=readiness.database outcome=unavailable error_type=%s",
+            type(exc).__name__,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not_ready",
+                "dependencies": {"database": "unavailable"},
+            },
+        )
+
+    email_configured = bool(settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL)
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    fixed_code = os.environ.get("OTP_DEV_FIXED_CODE", "")
+    local_fixed_code = (
+        environment in {"development", "test"}
+        and len(fixed_code) == 6
+        and fixed_code.isdigit()
+    )
+    if not email_configured and not local_fixed_code:
+        logger.warning("event=readiness.otp_email outcome=not_configured")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not_ready",
+                "dependencies": {
+                    "database": "reachable",
+                    "email_otp": "not_configured",
+                },
+            },
+        )
+
+    return {
+        "status": "ready",
+        "dependencies": {
+            "database": "reachable",
+            "email_otp": "configured" if email_configured else "development_fixed_code",
+        },
+    }
 
 
 async def warn_deprecated_cors_origins():

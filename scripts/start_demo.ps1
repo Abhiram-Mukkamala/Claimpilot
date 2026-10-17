@@ -4,6 +4,9 @@
 
 $ErrorActionPreference = 'Stop'
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location -LiteralPath $repoRoot
+
 # ============================================================
 # VALIDATION: Check prerequisites
 # ============================================================
@@ -80,8 +83,10 @@ function Test-EnvFile {
 
 $backendEnvPath = "insurance-pro\backend\.env"
 $frontendEnvPath = "insurance-pro\frontend\ClaimPilot\.env"
+$backendDir = Join-Path $repoRoot "insurance-pro\backend"
+$frontendDir = Join-Path $repoRoot "insurance-pro\frontend\ClaimPilot"
 
-$backendRequiredKeys = @("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET")
+$backendRequiredKeys = @("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET", "ENVIRONMENT")
 $frontendRequiredKeys = @("VITE_API_BASE_URL")
 
 Write-Host -NoNewline "Checking $backendEnvPath... "
@@ -92,20 +97,27 @@ Write-Host -NoNewline "Checking $frontendEnvPath... "
 $frontendEnvOk = Test-EnvFile -FilePath $frontendEnvPath -RequiredKeys $frontendRequiredKeys
 if ($frontendEnvOk) { Write-Host "OK" }
 
-# SMTP is optional - check if configured, otherwise warn
-Write-Host -NoNewline "Checking email configuration... "
+Write-Host -NoNewline "Checking OTP delivery configuration... "
 $emailConfigured = $false
+$localFixedCode = $false
 if (Test-Path $backendEnvPath) {
     $envContent = Get-Content $backendEnvPath -Raw
-    $smtpHostMatch = [regex]::Match($envContent, "^\s*SMTP_HOST\s*=", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    $sendgridKeyMatch = [regex]::Match($envContent, "^\s*SENDGRID_API_KEY\s*=", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $smtpHostMatch.Success -and -not $sendgridKeyMatch.Success) {
-        Write-Host "WARN: No email provider configured - OTP codes will print in the backend terminal"
-    } else {
-        Write-Host "OK"
-        $emailConfigured = $true
-    }
+    $sendgridKeyMatch = [regex]::Match($envContent, '(?m)^\s*SENDGRID_API_KEY\s*=\s*"?([^"\r\n]+)"?\s*$')
+    $sendgridFromMatch = [regex]::Match($envContent, '(?m)^\s*SENDGRID_FROM_EMAIL\s*=\s*"?([^"\r\n]+)"?\s*$')
+    $environmentMatch = [regex]::Match($envContent, '(?m)^\s*ENVIRONMENT\s*=\s*"?([^"\r\n]+)"?\s*$')
+    $fixedCodeMatch = [regex]::Match($envContent, '(?m)^\s*OTP_DEV_FIXED_CODE\s*=\s*"?\d{6}"?\s*$')
+    $emailConfigured = $sendgridKeyMatch.Success -and $sendgridFromMatch.Success
+    $environment = if ($environmentMatch.Success) { $environmentMatch.Groups[1].Value.Trim() } else { "" }
+    $localFixedCode = $environment -in @("development", "test") -and $fixedCodeMatch.Success
+}
+if ($emailConfigured) {
+    Write-Host "SendGrid configured"
+} elseif ($localFixedCode) {
+    Write-Host "development/test fixed OTP configured (never use in production)"
+} else {
+    Write-Host "FAIL"
+    Write-Error "Configure SENDGRID_API_KEY and SENDGRID_FROM_EMAIL, or a six-digit OTP_DEV_FIXED_CODE with ENVIRONMENT=development for local-only testing."
+    exit 1
 }
 
 if (-not $backendEnvOk -or -not $frontendEnvOk) {
@@ -127,7 +139,7 @@ if (Test-Path $pidFile) {
 # ============================================================
 
 Write-Host -NoNewline "Starting backend... "
-$backendProcess = Start-Process -FilePath "python" -ArgumentList "-m uvicorn insurance-pro.backend.app.main:app --host 0.0.0.0 --port 8000" -PassThru
+$backendProcess = Start-Process -FilePath "python" -WorkingDirectory $backendDir -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000") -PassThru
 $backendProcess.Id | Out-File $pidFile
 Write-Host "PID=$($backendProcess.Id)"
 
@@ -136,11 +148,11 @@ Write-Host "PID=$($backendProcess.Id)"
 # ============================================================
 
 Write-Host -NoNewline "Starting frontend... "
-$frontendDir = "insurance-pro\frontend\ClaimPilot"
+Write-Host -NoNewline "Starting frontend... "
 Write-Host "Running npm ci, then npm run build (Vite bakes VITE_* values at build time)..."
-$frontendProcess = Start-Process -FilePath "powershell" -ArgumentList @(
+$frontendProcess = Start-Process -FilePath "powershell" -WorkingDirectory $frontendDir -ArgumentList @(
     "-NoLogo", "-NoProfile", "-NonInteractive",
-    "-Command", "cd `$frontendDir; npm ci; npm run build; npm run preview"
+    "-Command", "npm ci; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; npm run build; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; npm run preview"
 ) -PassThru
 $frontendProcess.Id | Out-File $pidFile -Append
 Write-Host "Frontend PID=$($frontendProcess.Id)"
@@ -149,33 +161,23 @@ Write-Host "Frontend PID=$($frontendProcess.Id)"
 # WAIT: For backend to be ready
 # ============================================================
 
-Write-Host -NoNewline "Waiting for backend... "
+Write-Host -NoNewline "Waiting for Supabase-backed readiness... "
 $maxRetries = 30
 $retryInterval = 2
 $backendReady = $false
-$attemptedDocs = $false
 
 for ($i = 0; $i -lt $maxRetries; $i++) {
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -Method Head -ErrorAction SilentlyContinue
+        $response = Invoke-WebRequest -Uri "http://localhost:8000/health/ready" -Method Get -ErrorAction Stop
         if ($response.StatusCode -eq 200) {
             $backendReady = $true
             break
         }
     } catch {
-        # Try /docs as fallback
-        if (-not $attemptedDocs) {
-            try {
-                $response = Invoke-WebRequest -Uri "http://localhost:8000/docs" -Method Head -ErrorAction SilentlyContinue
-                if ($response.StatusCode -eq 200) {
-                    $backendReady = $true
-                    break
-                }
-            } catch {
-                $attemptedDocs = $true
-            }
-        }
+        # Keep retrying while backend starts; liveness and /docs do not prove
+        # that Supabase and OTP delivery are configured.
     }
+
     Start-Sleep -Seconds $retryInterval
 }
 

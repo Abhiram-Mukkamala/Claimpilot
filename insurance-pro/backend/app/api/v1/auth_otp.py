@@ -30,6 +30,29 @@ OTP_SEND_WINDOW_MINUTES = 10
 _send_locks = tuple(asyncio.Lock() for _ in range(64))
 
 
+_environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+_dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
+if _dev_fixed_code is not None:
+    if _environment not in {"development", "test"}:
+        raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development or test")
+    if len(_dev_fixed_code) != 6 or not _dev_fixed_code.isdigit():
+        raise RuntimeError("OTP_DEV_FIXED_CODE must be exactly six digits")
+
+
+def _otp_delivery_configured(channel: OtpChannel) -> bool:
+    """Return whether a real provider or explicit test mode supports this channel."""
+    if _environment == "test":
+        return True
+    if channel == OtpChannel.email:
+        return bool(settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL)
+    twilio_ready = bool(
+        settings.TWILIO_ACCOUNT_SID
+        and settings.TWILIO_AUTH_TOKEN
+        and settings.TWILIO_PHONE_NUMBER
+    )
+    return twilio_ready or bool(settings.FAST2SMS_API_KEY)
+
+
 def _otp_tag(
     otp_code: str,
     *,
@@ -71,6 +94,17 @@ async def issue_otp(
     authenticated_user_id: str = "",
 ) -> OtpSendResponse:
     """Create a short-lived login or signup challenge and dispatch its code."""
+    fixed_code_mode = _environment in {"development", "test"} and _dev_fixed_code is not None
+    if not fixed_code_mode and not _otp_delivery_configured(payload.channel):
+        logger.error(
+            "event=auth.otp.send outcome=provider_not_configured channel=%s",
+            payload.channel.value,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification delivery is not configured for this channel.",
+        )
+
     clean_identifier = payload.identifier.strip()
     if payload.channel == OtpChannel.email:
         clean_identifier = clean_identifier.lower()
@@ -155,29 +189,28 @@ async def issue_otp(
             ) from exc
 
     logger.info("event=auth.otp.send outcome=recorded user_id=%s", user_id or "unknown")
-    if payload.channel == OtpChannel.email:
+    if fixed_code_mode:
+        # Do not enqueue a mock transport for a configured local/test fixed code.
+        logger.info("event=auth.otp.delivery outcome=fixed_code_mode user_id=%s", user_id or "unknown")
+    elif payload.channel == OtpChannel.email:
         background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
     else:
         background_tasks.add_task(send_otp_via_sms, clean_identifier, otp_code, user_id or None)
 
+    message = (
+        "Verification challenge created using a development/test fixed code."
+        if fixed_code_mode
+        else f"Verification challenge recorded; delivery was scheduled via {payload.channel.value.upper()}."
+    )
     return OtpSendResponse(
-        message=f"6-digit verification code dispatched via {payload.channel.value.upper()}.",
+        message=message,
         identifier=clean_identifier,
         channel=payload.channel.value,
         expires_in_minutes=settings.OTP_EXPIRE_MINUTES,
         challenge_id=challenge_id,
     )
 
-_environment = os.environ.get("ENVIRONMENT", "").strip().lower()
-_dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
-if _dev_fixed_code is not None:
-    if _environment not in {"development", "test"}:
-        raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development or test")
-    if len(_dev_fixed_code) != 6 or not _dev_fixed_code.isdigit():
-        raise RuntimeError("OTP_DEV_FIXED_CODE must be exactly six digits")
-
-
-async def send_otp_via_email(email: str, otp_code: str):
+async def send_otp_via_email(email: str, otp_code: str) -> bool:
     """Deliver formatted HTML OTP to claimant's email address."""
     subject = f"🔐 Your ClaimPilot Verification Code: {otp_code}"
     plain_text = f"Your ClaimPilot 6-digit verification code is: {otp_code}. This code expires in 10 minutes."
@@ -205,7 +238,7 @@ async def send_otp_via_email(email: str, otp_code: str):
 </body>
 </html>
 """
-    await _dispatch_email(email, subject, html_content, plain_text)
+    return await _dispatch_email(email, subject, html_content, plain_text)
 
 
 async def send_otp_via_sms(phone_number: str, otp_code: str, user_id: str | None = None):

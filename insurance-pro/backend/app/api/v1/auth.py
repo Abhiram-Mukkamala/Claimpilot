@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import Dict, Any
 import logging
-from app.db.supabase import db, supabase_admin
+from app.db.supabase import db, supabase_public
 from app.core.security import get_current_user
 from app.core.request_logging import log_route_exception
 from app.schemas.claim import UserRegisterRequest, OtpSendRequest, OtpChannel
@@ -29,7 +29,7 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
 
     # Validate the password before creating the login OTP challenge.
     try:
-        auth_res = supabase_admin.auth.sign_in_with_password({
+        auth_res = supabase_public.auth.sign_in_with_password({
             "email": email,
             "password": password,
         })

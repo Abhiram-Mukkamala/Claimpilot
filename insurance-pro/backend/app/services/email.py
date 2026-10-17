@@ -1,7 +1,6 @@
 # app/services/email.py
-import os
 import logging
-from typing import List, Optional
+from typing import List
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from app.core.config import settings
@@ -11,32 +10,31 @@ logger.setLevel(logging.INFO)
 
 
 async def _dispatch_email(to_email: str, subject: str, html_body: str, plain_body: str) -> bool:
-  
-    # Grab values from Pydantic settings first, falling back to os.getenv
-    api_key = getattr(settings, "SENDGRID_API_KEY", os.getenv("SENDGRID_API_KEY"))
-    from_email = getattr(settings, "SENDGRID_FROM_EMAIL", os.getenv("SENDGRID_FROM_EMAIL", "rahul.sutar25@vupune.ac.in"))
+    """Send mail through configured SendGrid; never report a mock as delivered."""
+    api_key = settings.SENDGRID_API_KEY
+    from_email = settings.SENDGRID_FROM_EMAIL
+    if not api_key or not from_email:
+        logger.error("event=email.dispatch outcome=not_configured")
+        return False
 
-    # Dispatch via SendGrid API
-    if api_key:
-        message = Mail(
-            from_email=from_email,
-            to_emails=to_email,
-            subject=subject,
-            plain_text_content=plain_body,
-            html_content=html_body
-        )
-        try:
-            sg = SendGridAPIClient(api_key)
-            response = sg.send(message)
+    message = Mail(
+        from_email=from_email,
+        to_emails=to_email,
+        subject=subject,
+        plain_text_content=plain_body,
+        html_content=html_body
+    )
+    try:
+        response = SendGridAPIClient(api_key).send(message)
+        if response.status_code in (200, 201, 202):
             logger.info("event=email.dispatch outcome=sent status=%s", response.status_code)
-            return response.status_code in (200, 201, 202)
-        except Exception as e:
-            logger.error("event=email.dispatch outcome=failed error_type=%s", type(e).__name__)
-            return False
+            return True
+        logger.error("event=email.dispatch outcome=failed status=%s", response.status_code)
+        return False
+    except Exception as exc:
+        logger.error("event=email.dispatch outcome=failed error_type=%s", type(exc).__name__)
+        return False
 
-    # Terminal mock fallback if SENDGRID_API_KEY is not set
-    logger.info("event=email.mock_dispatch outcome=completed")
-    return True
 
 
 async def send_agent_approval_email(

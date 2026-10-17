@@ -208,7 +208,7 @@ def test_login_issues_user_bound_otp_challenge_only_after_password_auth(monkeypa
             return SimpleNamespace(user=SimpleNamespace(id="authenticated-user"))
 
     monkeypatch.setattr(auth_module, "issue_otp", issue_otp)
-    auth_module.supabase_admin = SimpleNamespace(auth=FakeAuth())
+    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth())
     result = asyncio.run(auth_module.login_user(
         {"email": "customer@example.invalid", "password": "test-password"},
         BackgroundTasks(),
@@ -226,7 +226,7 @@ def test_login_issues_user_bound_otp_challenge_only_after_password_auth(monkeypa
         def sign_in_with_password(self, _payload):
             raise RuntimeError("credentials rejected")
 
-    auth_module.supabase_admin = SimpleNamespace(auth=FailedAuth())
+    auth_module.supabase_public = SimpleNamespace(auth=FailedAuth())
     with pytest.raises(HTTPException) as error:
         asyncio.run(auth_module.login_user(
             {"email": "customer@example.invalid", "password": "wrong-password"},
@@ -278,7 +278,7 @@ def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, env
     assert inserted[0]["user_id"] == "user-123"
     assert len(inserted[0]["otp_code"]) == 6
     assert inserted[0]["otp_code"].isdigit()
-    assert background_tasks.tasks[0].args[1] == "184205"
+    assert background_tasks.tasks == []  # fixed-code mode must not pretend a message was sent
 
 
 @pytest.mark.parametrize(

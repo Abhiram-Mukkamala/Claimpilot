@@ -6,6 +6,8 @@ ClaimPilot combines a React web application, a FastAPI backend, Supabase authent
 
 > **Project status:** This README documents the intended project layout and local development workflow. It does not certify that a live Supabase deployment, email/SMS delivery, private evidence access, or the complete customer-to-agent flow is currently working. Verify those integrations in your own environment.
 
+**Current runtime wiring checklist:** see [Supabase runtime connection guide](docs/SUPABASE_RUNTIME_CONNECTION.md) for the project URL, backend-only secrets, readiness probe, and required live verification.
+
 ## Contents
 
 - [Project layout](#project-layout)
