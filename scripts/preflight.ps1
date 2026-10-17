@@ -78,12 +78,15 @@ foreach ($key in $requiredBackendKeys) {
     $value = Get-EnvValue -FilePath $backendEnv -Key $key
     if ([string]::IsNullOrWhiteSpace($value)) { $missingBackendKeys += $key }
 }
-Write-Check "Backend environment values present" ($missingBackendKeys.Count -eq 0) (
-    if ($missingBackendKeys.Count -gt 0) { "Missing/empty variable names: $($missingBackendKeys -join ', ')" } else { "" }
-)
+$backendKeyDetail = ""
+if ($missingBackendKeys.Count -gt 0) {
+    $backendKeyDetail = "Missing/empty variable names: $($missingBackendKeys -join ', ')"
+}
+Write-Check "Backend environment values present" ($missingBackendKeys.Count -eq 0) $backendKeyDetail
 
 $frontendApiUrl = Get-EnvValue -FilePath $frontendEnv -Key "VITE_API_BASE_URL"
-Write-Check "Frontend API URL present" (-not [string]::IsNullOrWhiteSpace($frontendApiUrl)) "Set VITE_API_BASE_URL to the backend /api/v1 endpoint."
+$frontendApiUrlPresent = -not [string]::IsNullOrWhiteSpace($frontendApiUrl)
+Write-Check "Frontend API URL present" $frontendApiUrlPresent "Set VITE_API_BASE_URL to the backend /api/v1 endpoint."
 
 # 3. OTP delivery must be real, except explicit local/test fixed-code mode.
 $environment = (Get-EnvValue -FilePath $backendEnv -Key "ENVIRONMENT")
