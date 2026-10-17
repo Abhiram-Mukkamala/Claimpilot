@@ -10,8 +10,8 @@
 ### Use this repository going forward
 - Repo: https://github.com/Abhiram-Mukkamala/Claimpilot
 - Private; default branch: `main`.
-- Last verified `main` head: `2057129fdca7f3d830b4564490dfc0d4c6e6b902`.
-- Head message: `fix(db): align cost estimate migration with applied Supabase version`.
+- Product-code baseline checked before this handoff was committed: `2057129fdca7f3d830b4564490dfc0d4c6e6b902` (`fix(db): align cost estimate migration with applied Supabase version`).
+- This handoff was then committed to `main` as a documentation-only change; therefore the baseline SHA above is not the current branch tip. At the start of the next iteration, fetch the actual remote `main` head and confirm the intervening change(s) are documentation-only before editing.
 - Last verified tracked file count: 225.
 
 ### Original source repository — reference only
@@ -121,7 +121,7 @@ This branch **does not exist yet**. Create just this one branch for evaluation r
 
 ## 7. Immediate next actions for 18 October deployment
 
-1. Recheck live `main` and branch heads; last verified `main` SHA was `2057129fdca7f3d830b4564490dfc0d4c6e6b902`.
+1. Recheck live `main` and branch heads first. The product-code baseline before handoff docs was `2057129fdca7f3d830b4564490dfc0d4c6e6b902`; handoff documentation commits have subsequently advanced `main`, so don't assume that SHA is the tip.
 2. Re-run backend CI after estimator changes. Fix failures, verify cost estimator response/migration contracts.
 3. Port `frontend/new-claim` and `frontend/agent-review` selectively into canonical frontend. Review diffs, preserve auth/API integration, add/update tests; do not merge stale snapshots wholesale.
 4. Review the rest of Ayaan's connected UI changes (login/dashboard/routes/API/types) and port useful parts that are needed for the build, keeping current contracts. Run frontend typecheck and production build.
