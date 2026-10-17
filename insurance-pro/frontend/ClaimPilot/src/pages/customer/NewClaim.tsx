@@ -61,7 +61,7 @@ interface EvidenceCatalogItem {
   file_url: string;
   storage_path: string;
   file_type: string;
-  category: 'photo' | 'walkaround_video';
+  category: 'photo' | 'walkaround_video' | 'dl_front' | 'dl_back';
 }
 
 interface PendingSubmission {
@@ -538,7 +538,7 @@ export const NewClaim = () => {
           file_url: dlFrontResult.public_url,
           storage_path: dlFrontResult.file_path,
           file_type: 'image/jpeg',
-          category: 'photo' as const
+          category: 'dl_front' as const
         }] : []),
         ...(dlBackResult ? [{
           id: 'dl-back',
@@ -546,7 +546,7 @@ export const NewClaim = () => {
           file_url: dlBackResult.public_url,
           storage_path: dlBackResult.file_path,
           file_type: 'image/jpeg',
-          category: 'photo' as const
+          category: 'dl_back' as const
         }] : []),
         ...uploadedImages.map((img, index) => ({
           id: `photo-${index}`,
