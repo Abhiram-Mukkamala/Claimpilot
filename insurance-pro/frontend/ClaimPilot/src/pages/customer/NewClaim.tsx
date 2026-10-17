@@ -16,11 +16,11 @@ const MAX_VIDEOS = 2;
 const UPLOAD_COOLDOWN_MS = 500;
 // TODO: Add an image file-size limit once the upload limit is defined.
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 
-const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
-const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.webm'];
+const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime'];
+const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov'];
 
 const isValidImageFile = (file: File): boolean => {
   const extension = '.' + (file.name.split('.').pop() || '').toLowerCase();
@@ -150,7 +150,7 @@ export const NewClaim = () => {
   };
 
   const downscaleImage = async (file: File): Promise<File> => {
-    if (!file.type.startsWith('image/') || file.type === 'image/heic' || file.type === 'image/heif') return file;
+    if (!file.type.startsWith('image/')) return file;
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
     if (scale === 1) {
@@ -192,7 +192,7 @@ export const NewClaim = () => {
     if (validFiles.length === 0) {
       setUploadNotice({
         type: 'error',
-        message: 'Unsupported format. Only JPG, PNG, WEBP, and HEIC images are accepted.'
+        message: 'Unsupported format. Only JPG, PNG, and WEBP images are accepted.'
       });
       e.target.value = '';
       return;
@@ -260,7 +260,7 @@ export const NewClaim = () => {
     if (validFiles.length === 0) {
       setUploadNotice({
         type: 'error',
-        message: 'Unsupported format. Only MP4, MOV, and WebM videos are accepted.'
+        message: 'Unsupported format. Only MP4 and MOV videos are accepted.'
       });
       e.target.value = '';
       return;
@@ -347,7 +347,7 @@ export const NewClaim = () => {
     if (!isValidImageFile(file)) {
       setUploadNotice({
         type: 'error',
-        message: 'Unsupported format. Please upload a JPG, PNG, WEBP, or HEIC image.'
+        message: 'Unsupported format. Please upload a JPG, PNG, or WEBP image.'
       });
       e.target.value = '';
       return;
@@ -473,8 +473,8 @@ export const NewClaim = () => {
     setCatalogErrors({});
 
     try {
-      const uploadedImages: { public_url: string; file_path: string; name: string }[] = [];
-      const uploadedVideos: { public_url: string; file_path: string; name: string }[] = [];
+      const uploadedImages: { public_url: string; file_path: string; name: string; file_type: string }[] = [];
+      const uploadedVideos: { public_url: string; file_path: string; name: string; file_type: string }[] = [];
       let dlFrontResult: { public_url: string; file_path: string } | undefined = undefined;
       let dlBackResult: { public_url: string; file_path: string } | undefined = undefined;
 
@@ -491,14 +491,14 @@ export const NewClaim = () => {
       for (const imgItem of images) {
         const res = await storageApi.uploadFile(imgItem.file, 'photo');
         if (res?.public_url && res?.file_path) {
-          uploadedImages.push({ public_url: res.public_url, file_path: res.file_path, name: imgItem.file.name });
+          uploadedImages.push({ public_url: res.public_url, file_path: res.file_path, name: imgItem.file.name, file_type: imgItem.file.type || 'image/jpeg' });
         }
       }
 
       for (const vidItem of videos) {
         const res = await storageApi.uploadFile(vidItem.file, 'walkaround_video');
         if (res?.public_url && res?.file_path) {
-          uploadedVideos.push({ public_url: res.public_url, file_path: res.file_path, name: vidItem.name });
+          uploadedVideos.push({ public_url: res.public_url, file_path: res.file_path, name: vidItem.name, file_type: vidItem.file.type || 'video/mp4' });
         }
       }
 
@@ -537,7 +537,7 @@ export const NewClaim = () => {
           fileName: driverLicenseFrontFile?.name || 'Driver_License_Front.jpg',
           file_url: dlFrontResult.public_url,
           storage_path: dlFrontResult.file_path,
-          file_type: 'image/jpeg',
+          file_type: driverLicenseFrontFile?.type || 'image/jpeg',
           category: 'dl_front' as const
         }] : []),
         ...(dlBackResult ? [{
@@ -545,7 +545,7 @@ export const NewClaim = () => {
           fileName: driverLicenseBackFile?.name || 'Driver_License_Back.jpg',
           file_url: dlBackResult.public_url,
           storage_path: dlBackResult.file_path,
-          file_type: 'image/jpeg',
+          file_type: driverLicenseBackFile?.type || 'image/jpeg',
           category: 'dl_back' as const
         }] : []),
         ...uploadedImages.map((img, index) => ({
@@ -553,7 +553,7 @@ export const NewClaim = () => {
           fileName: img.name || `Photo ${index + 1}`,
           file_url: img.public_url,
           storage_path: img.file_path,
-          file_type: 'image/jpeg',
+          file_type: img.file_type,
           category: 'photo' as const
         })),
         ...uploadedVideos.map((vid, index) => ({
@@ -561,7 +561,7 @@ export const NewClaim = () => {
           fileName: vid.name || `Video ${index + 1}`,
           file_url: vid.public_url,
           storage_path: vid.file_path,
-          file_type: 'video/mp4',
+          file_type: vid.file_type,
           category: 'walkaround_video' as const
         }))
       ];
@@ -893,7 +893,7 @@ export const NewClaim = () => {
                       >
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                           onChange={(e) => handleDLPhotoUpload(e, 'front')}
                           style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
                         />
@@ -945,7 +945,7 @@ export const NewClaim = () => {
                       >
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                           onChange={(e) => handleDLPhotoUpload(e, 'back')}
                           style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
                         />
@@ -1084,14 +1084,14 @@ export const NewClaim = () => {
                       <input
                         type="file"
                         multiple
-                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                         onChange={handleImageUpload}
                         style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
                       />
                       <div className="flex flex-col items-center gap-sm">
                         <Upload size={28} color="var(--text-secondary)" />
                         <span className="font-bold text-base">Drop photos here</span>
-                        <span className="text-xs text-muted">JPG, PNG, WEBP, or HEIC • {MAX_IMAGES - images.length} remaining (max {MAX_IMAGES})</span>
+                        <span className="text-xs text-muted">JPG, PNG, or WEBP • {MAX_IMAGES - images.length} remaining (max {MAX_IMAGES})</span>
                       </div>
                     </div>
                   ) : (
@@ -1133,7 +1133,7 @@ export const NewClaim = () => {
                       Walkaround Video (30–60 seconds)
                     </label>
                     <div className="flex items-center gap-xs">
-                      <span className="text-xs text-muted">MP4, MOV, or WebM</span>
+                      <span className="text-xs text-muted">MP4 or MOV</span>
                       <span
                         className="text-xs font-semibold px-2 py-0.5"
                         style={{
@@ -1160,7 +1160,7 @@ export const NewClaim = () => {
                     }} className="hover:bg-tertiary">
                       <input
                         type="file"
-                        accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+                        accept="video/mp4,video/quicktime,.mp4,.mov"
                         multiple={videos.length === 0}
                         onChange={handleVideoUpload}
                         disabled={isCompressing}
@@ -1180,7 +1180,7 @@ export const NewClaim = () => {
                               {videos.length === 0 ? 'Upload 30–60s Video' : 'Add Another Video'}
                             </span>
                             <span className="text-xs text-muted">
-                              MP4, MOV, or WebM • {MAX_VIDEOS - videos.length} remaining (max {MAX_VIDEOS})
+                              MP4 or MOV • {MAX_VIDEOS - videos.length} remaining (max {MAX_VIDEOS})
                             </span>
                           </>
                         )}

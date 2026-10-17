@@ -632,7 +632,10 @@ export const claimsApi = {
       throw new Error('Incident description is required.');
     }
 
-    const incident_date = claimData.incident_date || claimData.incidentDate || new Date().toISOString().split('T')[0];
+    const incident_date = String(claimData.incident_date || claimData.incidentDate || '').trim();
+    if (!incident_date) {
+      throw new Error('Incident date is required.');
+    }
 
     const payload = {
       policy_number,
