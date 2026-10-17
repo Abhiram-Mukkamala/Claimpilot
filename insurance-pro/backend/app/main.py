@@ -142,8 +142,8 @@ async def readiness_check():
         )
 
     email_configured = bool(settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL)
-    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
-    fixed_code = os.environ.get("OTP_DEV_FIXED_CODE", "")
+    environment = (os.environ.get("ENVIRONMENT") or settings.ENVIRONMENT).strip().lower()
+    fixed_code = os.environ.get("OTP_DEV_FIXED_CODE", settings.OTP_DEV_FIXED_CODE or "")
     local_fixed_code = (
         environment in {"development", "test"}
         and len(fixed_code) == 6

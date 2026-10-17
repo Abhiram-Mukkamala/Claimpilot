@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_STORAGE_BUCKET: str = Field(default="claim-evidence")
 
+    # Runtime OTP configuration is loaded from environment or backend .env.
+    ENVIRONMENT: str = Field(default="development")
+    OTP_DEV_FIXED_CODE: Optional[str] = Field(default=None)
+
     # JWT Settings (Required - must be set via environment or .env)
     JWT_SECRET: str
     JWT_ALGORITHM: str = Field(default="HS256")

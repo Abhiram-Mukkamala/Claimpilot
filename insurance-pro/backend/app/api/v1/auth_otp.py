@@ -30,8 +30,8 @@ OTP_SEND_WINDOW_MINUTES = 10
 _send_locks = tuple(asyncio.Lock() for _ in range(64))
 
 
-_environment = os.environ.get("ENVIRONMENT", "").strip().lower()
-_dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE")
+_environment = (os.environ.get("ENVIRONMENT") or settings.ENVIRONMENT).strip().lower()
+_dev_fixed_code = os.environ.get("OTP_DEV_FIXED_CODE", settings.OTP_DEV_FIXED_CODE)
 if _dev_fixed_code is not None:
     if _environment not in {"development", "test"}:
         raise RuntimeError("OTP_DEV_FIXED_CODE is allowed only when ENVIRONMENT=development or test")
