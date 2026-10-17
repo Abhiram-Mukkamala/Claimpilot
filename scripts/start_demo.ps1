@@ -148,7 +148,6 @@ Write-Host "PID=$($backendProcess.Id)"
 # ============================================================
 
 Write-Host -NoNewline "Starting frontend... "
-Write-Host -NoNewline "Starting frontend... "
 Write-Host "Running npm ci, then npm run build (Vite bakes VITE_* values at build time)..."
 $frontendProcess = Start-Process -FilePath "powershell" -WorkingDirectory $frontendDir -ArgumentList @(
     "-NoLogo", "-NoProfile", "-NonInteractive",

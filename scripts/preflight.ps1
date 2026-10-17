@@ -130,8 +130,35 @@ if (Test-Path $frontendEnvPath) {
 
 Write-Host -NoNewline "(4c) Email OTP delivery configured... "
 if (Test-Path $backendEnvPath) {
-    $backendEnvContent = Get-Content $backendEnvPath -Raw
-    $sendgridKey = [regex]::Match($backendEnvContent, '(?m)^\s*SENDGRID_API_KEY\s*=\s*"?([^"\r\n]+)"?\s*# ============================================================
+    $backendEnvLines = Get-Content $backendEnvPath
+    $sendgridKeyLine = $backendEnvLines | Where-Object { $_ -match '^\s*SENDGRID_API_KEY\s*=' } | Select-Object -First 1
+    $sendgridFromLine = $backendEnvLines | Where-Object { $_ -match '^\s*SENDGRID_FROM_EMAIL\s*=' } | Select-Object -First 1
+    $environmentLine = $backendEnvLines | Where-Object { $_ -match '^\s*ENVIRONMENT\s*=' } | Select-Object -First 1
+    $fixedCodeLine = $backendEnvLines | Where-Object { $_ -match '^\s*OTP_DEV_FIXED_CODE\s*=' } | Select-Object -First 1
+
+    $sendgridKeyValue = if ($sendgridKeyLine) { $sendgridKeyLine.Substring($sendgridKeyLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
+    $sendgridFromValue = if ($sendgridFromLine) { $sendgridFromLine.Substring($sendgridFromLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
+    $environmentValue = if ($environmentLine) { $environmentLine.Substring($environmentLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
+    $fixedCodeValue = if ($fixedCodeLine) { $fixedCodeLine.Substring($fixedCodeLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
+
+    $hasRealEmail = -not [string]::IsNullOrWhiteSpace($sendgridKeyValue) -and -not [string]::IsNullOrWhiteSpace($sendgridFromValue)
+    $hasLocalCode = ($environmentValue -in @("development", "test")) -and ($fixedCodeValue -match '^\d{6}$')
+    if ($hasRealEmail) {
+        Write-Host "PASS (SendGrid values present; provider credentials not independently validated)"
+    } elseif ($hasLocalCode) {
+        Write-Host "PASS (local/test fixed code only; not for deployment)"
+    } else {
+        Write-Host "FAIL: Configure SendGrid or a local-only fixed code for development"
+        $allPassed = $false
+    }
+} else {
+    Write-Host "FAIL: backend .env missing"
+    $allPassed = $false
+}
+
+# ============================================================
+# CHECK 5: Weight files exist and are non-empty
+# ============================================================
 
 Write-Host -NoNewline "(5) Weight files exist and non-empty... "
 $weightsDir = "insurance-pro\backend\app\models\weights"
@@ -141,7 +168,7 @@ if (-not (Test-Path $weightsDir)) {
     $allPassed = $false
 } else {
     # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
+    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File | Where-Object { $_.Name -in @("best.pt", "yolov11m.pt") }
     
     if ($yoloWeightFiles.Count -eq 0) {
         Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
