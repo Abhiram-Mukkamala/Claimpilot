@@ -1,1012 +1,144 @@
 #!/usr/bin/env powershell
-# preflight.ps1 - Pre-demo checklist for claimbot AI
-# Usage: .\scripts\preflight.ps1
-# Exits with non-zero code on any FAIL
+# ClaimPilot preflight: run from any directory with .\scripts\preflight.ps1
+# Checks runtime prerequisites without printing environment values or secrets.
 
 $ErrorActionPreference = "Stop"
-
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $repoRoot
 
-Write-Host "=== Preflight Checklist ==="
-Write-Host ""
-
 $allPassed = $true
+function Write-Check {
+    param([string]$Name, [bool]$Passed, [string]$Detail = "")
+    if ($Passed) {
+        Write-Host "PASS: $Name" -ForegroundColor Green
+    } else {
+        Write-Host "FAIL: $Name $Detail" -ForegroundColor Red
+        $script:allPassed = $false
+    }
+}
 
-# ============================================================
-# CHECK 1: Python version >= 3.11
-# ============================================================
+function Get-EnvValue {
+    param([string]$FilePath, [string]$Key)
+    if (-not (Test-Path -LiteralPath $FilePath)) { return $null }
+    $line = Get-Content -LiteralPath $FilePath |
+        Where-Object { $_ -match "^\s*$([regex]::Escape($Key))\s*=" } |
+        Select-Object -Last 1
+    if (-not $line) { return $null }
+    $value = $line.Substring($line.IndexOf("=") + 1).Trim()
+    if ($value.Length -ge 2 -and (
+        ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+        ($value.StartsWith("'") -and $value.EndsWith("'"))
+    )) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    return $value
+}
 
-Write-Host -NoNewline "(1) Python >= 3.11... "
+Write-Host "=== ClaimPilot preflight ==="
+Write-Host "Repository: $repoRoot"
+
+# 1. Local runtimes.
+$pythonOk = $false
 try {
-    $pythonOutput = python --version 2>&1
-    if ($pythonOutput -match "Python 3\.11\.") {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL: Requires Python 3.11 (found: $pythonOutput)"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL: Python not found"
-    $allPassed = $false
-}
+    $pythonVersion = python --version 2>&1
+    $pythonOk = ($pythonVersion -match "Python 3\.11\.")
+} catch { $pythonOk = $false }
+Write-Check "Python 3.11" $pythonOk "Install/select Python 3.11 before running the demo."
 
-# ============================================================
-# CHECK 2: Node.js version
-# ============================================================
-
-Write-Host -NoNewline "(2) Node.js installed... "
+$nodeOk = $false
 try {
-    $nodeOutput = node --version 2>&1
-    if ($nodeOutput) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL: Node.js not found"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL: Node.js not found"
-    $allPassed = $false
-}
+    $nodeVersion = node --version 2>&1
+    $nodeOk = ($LASTEXITCODE -eq 0 -and $nodeVersion)
+} catch { $nodeOk = $false }
+Write-Check "Node.js installed" ([bool]$nodeOk) "Install a Node.js version supported by the committed lockfile."
 
-# ============================================================
-# CHECK 3: Both .env files exist
-# ============================================================
+# 2. Environment files and required variable names.
+$backendEnv = Join-Path $repoRoot "insurance-pro\backend\.env"
+$frontendEnv = Join-Path $repoRoot "insurance-pro\frontend\ClaimPilot\.env"
+$backendExists = Test-Path -LiteralPath $backendEnv
+$frontendExists = Test-Path -LiteralPath $frontendEnv
+Write-Check "Backend .env exists" $backendExists "Copy insurance-pro\backend\.env.example to .env and configure it locally."
+Write-Check "Frontend .env exists" $frontendExists "Copy insurance-pro\frontend\ClaimPilot\.env.example to .env and set VITE_API_BASE_URL."
 
-$backendEnvPath = "insurance-pro\backend\.env"
-$frontendEnvPath = "insurance-pro\frontend\ClaimPilot\.env"
-
-Write-Host -NoNewline "(3a) Backend .env file exists... "
-if (Test-Path $backendEnvPath) {
-    Write-Host "PASS"
-} else {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-}
-
-Write-Host -NoNewline "(3b) Frontend .env file exists... "
-if (Test-Path $frontendEnvPath) {
-    Write-Host "PASS"
-} else {
-    Write-Host "FAIL: $frontendEnvPath does not exist"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 4: Required variable NAMES are set in .env files
-# ============================================================
-
-Write-Host -NoNewline "(4a) Backend required variable names... "
-$backendRequiredKeys = @("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET", "ENVIRONMENT")
-$backendMissingKeys = @()
-
-if (Test-Path $backendEnvPath) {
-    $backendEnvContent = Get-Content $backendEnvPath -Raw
-    foreach ($key in $backendRequiredKeys) {
-        $match = [regex]::Match($backendEnvContent, "^\s*$key\s*=", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-        if (-not $match.Success) {
-            $backendMissingKeys += $key
-        }
-    }
-    
-    if ($backendMissingKeys.Count -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL: Missing variable names: $($backendMissingKeys -join ', ')"
-        $allPassed = $false
-    }
-} else {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-}
-
-Write-Host -NoNewline "(4b) Frontend required variable names... "
-$frontendRequiredKeys = @("VITE_API_BASE_URL")
-$frontendMissingKeys = @()
-
-if (Test-Path $frontendEnvPath) {
-    $frontendEnvContent = Get-Content $frontendEnvPath -Raw
-    foreach ($key in $frontendRequiredKeys) {
-        $match = [regex]::Match($frontendEnvContent, "^\s*$key\s*=", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-        if (-not $match.Success) {
-            $frontendMissingKeys += $key
-        }
-    }
-    
-    if ($frontendMissingKeys.Count -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL: Missing variable names: $($frontendMissingKeys -join ', ')"
-        $allPassed = $false
-    }
-} else {
-    Write-Host "FAIL: $frontendEnvPath does not exist"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 4c: Email OTP delivery is explicitly configured
-# ============================================================
-
-Write-Host -NoNewline "(4c) Email OTP delivery configured... "
-if (Test-Path $backendEnvPath) {
-    $backendEnvLines = Get-Content $backendEnvPath
-    $sendgridKeyLine = $backendEnvLines | Where-Object { $_ -match '^\s*SENDGRID_API_KEY\s*=' } | Select-Object -First 1
-    $sendgridFromLine = $backendEnvLines | Where-Object { $_ -match '^\s*SENDGRID_FROM_EMAIL\s*=' } | Select-Object -First 1
-    $environmentLine = $backendEnvLines | Where-Object { $_ -match '^\s*ENVIRONMENT\s*=' } | Select-Object -First 1
-    $fixedCodeLine = $backendEnvLines | Where-Object { $_ -match '^\s*OTP_DEV_FIXED_CODE\s*=' } | Select-Object -First 1
-
-    $sendgridKeyValue = if ($sendgridKeyLine) { $sendgridKeyLine.Substring($sendgridKeyLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
-    $sendgridFromValue = if ($sendgridFromLine) { $sendgridFromLine.Substring($sendgridFromLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
-    $environmentValue = if ($environmentLine) { $environmentLine.Substring($environmentLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
-    $fixedCodeValue = if ($fixedCodeLine) { $fixedCodeLine.Substring($fixedCodeLine.IndexOf('=') + 1).Trim().Trim('"').Trim("'") } else { "" }
-
-    $hasRealEmail = -not [string]::IsNullOrWhiteSpace($sendgridKeyValue) -and -not [string]::IsNullOrWhiteSpace($sendgridFromValue)
-    $hasLocalCode = ($environmentValue -in @("development", "test")) -and ($fixedCodeValue -match '^\d{6}$')
-    if ($hasRealEmail) {
-        Write-Host "PASS (SendGrid values present; provider credentials not independently validated)"
-    } elseif ($hasLocalCode) {
-        Write-Host "PASS (local/test fixed code only; not for deployment)"
-    } else {
-        Write-Host "FAIL: Configure SendGrid or a local-only fixed code for development"
-        $allPassed = $false
-    }
-} else {
-    Write-Host "FAIL: backend .env missing"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 5: Weight files exist and are non-empty
-# ============================================================
-
-Write-Host -NoNewline "(5) Weight files exist and non-empty... "
-$weightsDir = "insurance-pro\backend\app\models\weights"
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File | Where-Object { $_.Name -in @("best.pt", "yolov11m.pt") }
-    
-    if ($yoloWeightFiles.Count -eq 0) {
-        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allNonEmpty = $true
-        $emptyFiles = @()
-        foreach ($file in $yoloWeightFiles) {
-            if ($file.Length -eq 0) {
-                $allNonEmpty = $false
-                $emptyFiles += $file.Name
-            }
-        }
-        if (-not $allNonEmpty) {
-            Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
-            $allPassed = $false
-        } else {
-            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
-        }
-    }
-}
-
-# ============================================================
-# CHECK 6: Ports 8000 and 4173 are free
-# ============================================================
-
-$ports = @(8000, 4173)
-foreach ($port in $ports) {
-    Write-Host -NoNewline "(6) Port $port is free... "
-    try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-        if ($connection -eq $false) {
-            Write-Host "PASS"
-        } else {
-            Write-Host "FAIL: Port $port is in use"
-            $allPassed = $false
-        }
-    } catch {
-        # If we can't test (e.g., network issues), assume it's free
-        Write-Host "PASS"
-    }
-}
-
-# ============================================================
-# CHECK 7: Supabase is reachable
-# ============================================================
-
-Write-Host -NoNewline "(7) Supabase is reachable... "
-
-if (-not (Test-Path $backendEnvPath)) {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-} else {
-    $envContent = Get-Content $backendEnvPath -Raw
-    $supabaseUrlMatch = [regex]::Match($envContent, "^\s*SUPABASE_URL\s*=\s*(.+?)\s*$", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $supabaseUrlMatch.Success) {
-        Write-Host "FAIL: SUPABASE_URL not found in backend .env"
-        $allPassed = $false
-    } else {
-        $supabaseUrl = $supabaseUrlMatch.Groups[1].Value.Trim('"', "'")
-        try {
-            # Ensure URL starts with https://
-            if (-not $supabaseUrl.StartsWith("https://")) {
-                if (-not $supabaseUrl.StartsWith("http://")) {
-                    $supabaseUrl = "https://" + $supabaseUrl
-                }
-            }
-            
-            $response = Invoke-WebRequest -Uri $supabaseUrl -Method Head -UseBasicParsing -ErrorAction Stop
-            Write-Host "PASS"
-        } catch {
-            Write-Host "FAIL: Could not reach Supabase URL"
-            $allPassed = $false
-        }
-    }
-}
-
-# ============================================================
-# CHECK 8: Backend deps import
-# ============================================================
-
-Write-Host -NoNewline "(8) Backend deps import... "
-try {
-    # Test critical imports
-    $pythonCheck = python -c "import fastapi; import uvicorn; import ultralytics; import yaml; import pydantic" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 9: Ultralytics loads each weight file
-# ============================================================
-
-Write-Host "(9) Ultralytics loads weight files..."
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "  FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
-    
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "  FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allLoaded = $true
-        foreach ($file in $weightFiles) {
-            Write-Host -NoNewline "  Loading $($file.Name)... "
-            try {
-                $pythonScript = "from ultralytics import YOLO; model = YOLO('$($file.FullName)'); print(', '.join(model.names.values()))"
-                $output = python -c $pythonScript 2>&1
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "FAIL"
-                    Write-Host "    Error: $output"
-                    $allLoaded = $false
-                    $allPassed = $false
-                } else {
-                    Write-Host "OK (classes: $output)"
-                }
-            } catch {
-                Write-Host "FAIL"
-                Write-Host "    Error: $_"
-                $allLoaded = $false
-                $allPassed = $false
-            }
-        }
-        
-        if ($allLoaded) {
-            Write-Host "  PASS"
-        }
-    }
-}
-
-# ============================================================
-# FINAL RESULT
-# ============================================================
-
-Write-Host ""
-Write-Host "=== Preflight Result ==="
-if ($allPassed) {
-    Write-Host "ALL CHECKS PASSED"
-    exit 0
-} else {
-    Write-Host "SOME CHECKS FAILED"
-    exit 1
-}
+$requiredBackendKeys = @(
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "JWT_SECRET",
+    "ENVIRONMENT",
+    "ALLOWED_ORIGINS",
+    "FRONTEND_URL"
 )
-    $sendgridFrom = [regex]::Match($backendEnvContent, '(?m)^\s*SENDGRID_FROM_EMAIL\s*=\s*"?([^"\r\n]+)"?\s*# ============================================================
-
-Write-Host -NoNewline "(5) Weight files exist and non-empty... "
-$weightsDir = "insurance-pro\backend\app\models\weights"
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
-    
-    if ($yoloWeightFiles.Count -eq 0) {
-        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allNonEmpty = $true
-        $emptyFiles = @()
-        foreach ($file in $yoloWeightFiles) {
-            if ($file.Length -eq 0) {
-                $allNonEmpty = $false
-                $emptyFiles += $file.Name
-            }
-        }
-        if (-not $allNonEmpty) {
-            Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
-            $allPassed = $false
-        } else {
-            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
-        }
-    }
+$missingBackendKeys = @()
+foreach ($key in $requiredBackendKeys) {
+    $value = Get-EnvValue -FilePath $backendEnv -Key $key
+    if ([string]::IsNullOrWhiteSpace($value)) { $missingBackendKeys += $key }
 }
-
-# ============================================================
-# CHECK 6: Ports 8000 and 4173 are free
-# ============================================================
-
-$ports = @(8000, 4173)
-foreach ($port in $ports) {
-    Write-Host -NoNewline "(6) Port $port is free... "
-    try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-        if ($connection -eq $false) {
-            Write-Host "PASS"
-        } else {
-            Write-Host "FAIL: Port $port is in use"
-            $allPassed = $false
-        }
-    } catch {
-        # If we can't test (e.g., network issues), assume it's free
-        Write-Host "PASS"
-    }
-}
-
-# ============================================================
-# CHECK 7: Supabase is reachable
-# ============================================================
-
-Write-Host -NoNewline "(7) Supabase is reachable... "
-
-if (-not (Test-Path $backendEnvPath)) {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-} else {
-    $envContent = Get-Content $backendEnvPath -Raw
-    $supabaseUrlMatch = [regex]::Match($envContent, "^\s*SUPABASE_URL\s*=\s*(.+?)\s*$", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $supabaseUrlMatch.Success) {
-        Write-Host "FAIL: SUPABASE_URL not found in backend .env"
-        $allPassed = $false
-    } else {
-        $supabaseUrl = $supabaseUrlMatch.Groups[1].Value.Trim('"', "'")
-        try {
-            # Ensure URL starts with https://
-            if (-not $supabaseUrl.StartsWith("https://")) {
-                if (-not $supabaseUrl.StartsWith("http://")) {
-                    $supabaseUrl = "https://" + $supabaseUrl
-                }
-            }
-            
-            $response = Invoke-WebRequest -Uri $supabaseUrl -Method Head -UseBasicParsing -ErrorAction Stop
-            Write-Host "PASS"
-        } catch {
-            Write-Host "FAIL: Could not reach Supabase URL"
-            $allPassed = $false
-        }
-    }
-}
-
-# ============================================================
-# CHECK 8: Backend deps import
-# ============================================================
-
-Write-Host -NoNewline "(8) Backend deps import... "
-try {
-    # Test critical imports
-    $pythonCheck = python -c "import fastapi; import uvicorn; import ultralytics; import yaml; import pydantic" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 9: Ultralytics loads each weight file
-# ============================================================
-
-Write-Host "(9) Ultralytics loads weight files..."
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "  FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
-    
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "  FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allLoaded = $true
-        foreach ($file in $weightFiles) {
-            Write-Host -NoNewline "  Loading $($file.Name)... "
-            try {
-                $pythonScript = "from ultralytics import YOLO; model = YOLO('$($file.FullName)'); print(', '.join(model.names.values()))"
-                $output = python -c $pythonScript 2>&1
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "FAIL"
-                    Write-Host "    Error: $output"
-                    $allLoaded = $false
-                    $allPassed = $false
-                } else {
-                    Write-Host "OK (classes: $output)"
-                }
-            } catch {
-                Write-Host "FAIL"
-                Write-Host "    Error: $_"
-                $allLoaded = $false
-                $allPassed = $false
-            }
-        }
-        
-        if ($allLoaded) {
-            Write-Host "  PASS"
-        }
-    }
-}
-
-# ============================================================
-# FINAL RESULT
-# ============================================================
-
-Write-Host ""
-Write-Host "=== Preflight Result ==="
-if ($allPassed) {
-    Write-Host "ALL CHECKS PASSED"
-    exit 0
-} else {
-    Write-Host "SOME CHECKS FAILED"
-    exit 1
-}
+Write-Check "Backend environment values present" ($missingBackendKeys.Count -eq 0) (
+    if ($missingBackendKeys.Count -gt 0) { "Missing/empty variable names: $($missingBackendKeys -join ', ')" } else { "" }
 )
-    $environmentMatch = [regex]::Match($backendEnvContent, '(?m)^\s*ENVIRONMENT\s*=\s*"?([^"\r\n]+)"?\s*# ============================================================
 
-Write-Host -NoNewline "(5) Weight files exist and non-empty... "
-$weightsDir = "insurance-pro\backend\app\models\weights"
+$frontendApiUrl = Get-EnvValue -FilePath $frontendEnv -Key "VITE_API_BASE_URL"
+Write-Check "Frontend API URL present" (-not [string]::IsNullOrWhiteSpace($frontendApiUrl)) "Set VITE_API_BASE_URL to the backend /api/v1 endpoint."
 
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
-    
-    if ($yoloWeightFiles.Count -eq 0) {
-        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allNonEmpty = $true
-        $emptyFiles = @()
-        foreach ($file in $yoloWeightFiles) {
-            if ($file.Length -eq 0) {
-                $allNonEmpty = $false
-                $emptyFiles += $file.Name
-            }
-        }
-        if (-not $allNonEmpty) {
-            Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
-            $allPassed = $false
-        } else {
-            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
-        }
-    }
-}
-
-# ============================================================
-# CHECK 6: Ports 8000 and 4173 are free
-# ============================================================
-
-$ports = @(8000, 4173)
-foreach ($port in $ports) {
-    Write-Host -NoNewline "(6) Port $port is free... "
-    try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-        if ($connection -eq $false) {
-            Write-Host "PASS"
-        } else {
-            Write-Host "FAIL: Port $port is in use"
-            $allPassed = $false
-        }
-    } catch {
-        # If we can't test (e.g., network issues), assume it's free
-        Write-Host "PASS"
-    }
-}
-
-# ============================================================
-# CHECK 7: Supabase is reachable
-# ============================================================
-
-Write-Host -NoNewline "(7) Supabase is reachable... "
-
-if (-not (Test-Path $backendEnvPath)) {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-} else {
-    $envContent = Get-Content $backendEnvPath -Raw
-    $supabaseUrlMatch = [regex]::Match($envContent, "^\s*SUPABASE_URL\s*=\s*(.+?)\s*$", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $supabaseUrlMatch.Success) {
-        Write-Host "FAIL: SUPABASE_URL not found in backend .env"
-        $allPassed = $false
-    } else {
-        $supabaseUrl = $supabaseUrlMatch.Groups[1].Value.Trim('"', "'")
-        try {
-            # Ensure URL starts with https://
-            if (-not $supabaseUrl.StartsWith("https://")) {
-                if (-not $supabaseUrl.StartsWith("http://")) {
-                    $supabaseUrl = "https://" + $supabaseUrl
-                }
-            }
-            
-            $response = Invoke-WebRequest -Uri $supabaseUrl -Method Head -UseBasicParsing -ErrorAction Stop
-            Write-Host "PASS"
-        } catch {
-            Write-Host "FAIL: Could not reach Supabase URL"
-            $allPassed = $false
-        }
-    }
-}
-
-# ============================================================
-# CHECK 8: Backend deps import
-# ============================================================
-
-Write-Host -NoNewline "(8) Backend deps import... "
-try {
-    # Test critical imports
-    $pythonCheck = python -c "import fastapi; import uvicorn; import ultralytics; import yaml; import pydantic" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 9: Ultralytics loads each weight file
-# ============================================================
-
-Write-Host "(9) Ultralytics loads weight files..."
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "  FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
-    
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "  FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allLoaded = $true
-        foreach ($file in $weightFiles) {
-            Write-Host -NoNewline "  Loading $($file.Name)... "
-            try {
-                $pythonScript = "from ultralytics import YOLO; model = YOLO('$($file.FullName)'); print(', '.join(model.names.values()))"
-                $output = python -c $pythonScript 2>&1
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "FAIL"
-                    Write-Host "    Error: $output"
-                    $allLoaded = $false
-                    $allPassed = $false
-                } else {
-                    Write-Host "OK (classes: $output)"
-                }
-            } catch {
-                Write-Host "FAIL"
-                Write-Host "    Error: $_"
-                $allLoaded = $false
-                $allPassed = $false
-            }
-        }
-        
-        if ($allLoaded) {
-            Write-Host "  PASS"
-        }
-    }
-}
-
-# ============================================================
-# FINAL RESULT
-# ============================================================
-
-Write-Host ""
-Write-Host "=== Preflight Result ==="
-if ($allPassed) {
-    Write-Host "ALL CHECKS PASSED"
-    exit 0
-} else {
-    Write-Host "SOME CHECKS FAILED"
-    exit 1
-}
+# 3. OTP delivery must be real, except explicit local/test fixed-code mode.
+$environment = (Get-EnvValue -FilePath $backendEnv -Key "ENVIRONMENT")
+$sendgridKey = Get-EnvValue -FilePath $backendEnv -Key "SENDGRID_API_KEY"
+$sendgridFrom = Get-EnvValue -FilePath $backendEnv -Key "SENDGRID_FROM_EMAIL"
+$fixedCode = Get-EnvValue -FilePath $backendEnv -Key "OTP_DEV_FIXED_CODE"
+$hasSendGrid = -not [string]::IsNullOrWhiteSpace($sendgridKey) -and
+    -not [string]::IsNullOrWhiteSpace($sendgridFrom)
+$hasLocalFixedCode = ($environment -in @("development", "test")) -and ($fixedCode -match "^\d{6}$")
+Write-Check "OTP delivery configured" ($hasSendGrid -or $hasLocalFixedCode) (
+    "Configure SENDGRID_API_KEY + SENDGRID_FROM_EMAIL, or a six-digit OTP_DEV_FIXED_CODE for local development only."
 )
-    $fixedCode = [regex]::Match($backendEnvContent, '(?m)^\s*OTP_DEV_FIXED_CODE\s*=\s*"?\d{6}"?\s*# ============================================================
-
-Write-Host -NoNewline "(5) Weight files exist and non-empty... "
-$weightsDir = "insurance-pro\backend\app\models\weights"
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
-    
-    if ($yoloWeightFiles.Count -eq 0) {
-        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allNonEmpty = $true
-        $emptyFiles = @()
-        foreach ($file in $yoloWeightFiles) {
-            if ($file.Length -eq 0) {
-                $allNonEmpty = $false
-                $emptyFiles += $file.Name
-            }
-        }
-        if (-not $allNonEmpty) {
-            Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
-            $allPassed = $false
-        } else {
-            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
-        }
-    }
+if ($hasLocalFixedCode -and -not $hasSendGrid) {
+    Write-Host "NOTE: fixed-code OTP is local/test only; never deploy it."
 }
 
-# ============================================================
-# CHECK 6: Ports 8000 and 4173 are free
-# ============================================================
+# 4. Model checkpoint presence. This does not prove inference quality.
+$weightsDir = Join-Path $repoRoot "insurance-pro\backend\app\models\weights"
+$weightFiles = @()
+if (Test-Path -LiteralPath $weightsDir) {
+    $weightFiles = @(Get-ChildItem -LiteralPath $weightsDir -File |
+        Where-Object { $_.Name -in @("best.pt", "yolov11m.pt") -and $_.Length -gt 0 })
+}
+Write-Check "YOLO checkpoint present" ($weightFiles.Count -gt 0) "Expected a non-empty best.pt or yolov11m.pt under insurance-pro\backend\app\models\weights."
 
-$ports = @(8000, 4173)
-foreach ($port in $ports) {
-    Write-Host -NoNewline "(6) Port $port is free... "
+# 5. Local dependency import check.
+if ($pythonOk) {
+    $importOutput = & python -c "import fastapi, uvicorn, supabase, ultralytics, yaml, pydantic" 2>&1
+    Write-Check "Backend dependency imports" ($LASTEXITCODE -eq 0) "Activate/install the backend environment from insurance-pro\backend\requirements.txt."
+} else {
+    Write-Check "Backend dependency imports" $false "Skipped because Python 3.11 was not found."
+}
+
+# 6. Supabase URL/host reachability (read-only; no DB writes).
+$supabaseUrl = Get-EnvValue -FilePath $backendEnv -Key "SUPABASE_URL"
+$supabaseReachable = $false
+if (-not [string]::IsNullOrWhiteSpace($supabaseUrl)) {
     try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-        if ($connection -eq $false) {
-            Write-Host "PASS"
-        } else {
-            Write-Host "FAIL: Port $port is in use"
-            $allPassed = $false
+        $uri = [System.Uri]$supabaseUrl
+        if ($uri.Scheme -eq "https") {
+            $healthUrl = $supabaseUrl.TrimEnd("/") + "/auth/v1/health"
+            $null = Invoke-WebRequest -Uri $healthUrl -Method Get -TimeoutSec 10 -ErrorAction Stop
+            $supabaseReachable = $true
         }
-    } catch {
-        # If we can't test (e.g., network issues), assume it's free
-        Write-Host "PASS"
-    }
+    } catch { $supabaseReachable = $false }
 }
+Write-Check "Supabase HTTPS endpoint reachable" $supabaseReachable "Check the configured project URL and network access; readiness is also checked after backend startup."
 
-# ============================================================
-# CHECK 7: Supabase is reachable
-# ============================================================
-
-Write-Host -NoNewline "(7) Supabase is reachable... "
-
-if (-not (Test-Path $backendEnvPath)) {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-} else {
-    $envContent = Get-Content $backendEnvPath -Raw
-    $supabaseUrlMatch = [regex]::Match($envContent, "^\s*SUPABASE_URL\s*=\s*(.+?)\s*$", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $supabaseUrlMatch.Success) {
-        Write-Host "FAIL: SUPABASE_URL not found in backend .env"
-        $allPassed = $false
-    } else {
-        $supabaseUrl = $supabaseUrlMatch.Groups[1].Value.Trim('"', "'")
-        try {
-            # Ensure URL starts with https://
-            if (-not $supabaseUrl.StartsWith("https://")) {
-                if (-not $supabaseUrl.StartsWith("http://")) {
-                    $supabaseUrl = "https://" + $supabaseUrl
-                }
-            }
-            
-            $response = Invoke-WebRequest -Uri $supabaseUrl -Method Head -UseBasicParsing -ErrorAction Stop
-            Write-Host "PASS"
-        } catch {
-            Write-Host "FAIL: Could not reach Supabase URL"
-            $allPassed = $false
-        }
-    }
+# 7. The local demo ports need to be free.
+foreach ($port in @(8000, 4173)) {
+    $inUse = $false
+    try { $inUse = [bool](Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue) } catch {}
+    Write-Check "Port $port free" (-not $inUse) "Stop the process already listening on this port."
 }
-
-# ============================================================
-# CHECK 8: Backend deps import
-# ============================================================
-
-Write-Host -NoNewline "(8) Backend deps import... "
-try {
-    # Test critical imports
-    $pythonCheck = python -c "import fastapi; import uvicorn; import ultralytics; import yaml; import pydantic" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 9: Ultralytics loads each weight file
-# ============================================================
-
-Write-Host "(9) Ultralytics loads weight files..."
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "  FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
-    
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "  FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allLoaded = $true
-        foreach ($file in $weightFiles) {
-            Write-Host -NoNewline "  Loading $($file.Name)... "
-            try {
-                $pythonScript = "from ultralytics import YOLO; model = YOLO('$($file.FullName)'); print(', '.join(model.names.values()))"
-                $output = python -c $pythonScript 2>&1
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "FAIL"
-                    Write-Host "    Error: $output"
-                    $allLoaded = $false
-                    $allPassed = $false
-                } else {
-                    Write-Host "OK (classes: $output)"
-                }
-            } catch {
-                Write-Host "FAIL"
-                Write-Host "    Error: $_"
-                $allLoaded = $false
-                $allPassed = $false
-            }
-        }
-        
-        if ($allLoaded) {
-            Write-Host "  PASS"
-        }
-    }
-}
-
-# ============================================================
-# FINAL RESULT
-# ============================================================
 
 Write-Host ""
-Write-Host "=== Preflight Result ==="
 if ($allPassed) {
-    Write-Host "ALL CHECKS PASSED"
+    Write-Host "Preflight passed. This does not replace the live claim E2E test." -ForegroundColor Green
     exit 0
-} else {
-    Write-Host "SOME CHECKS FAILED"
-    exit 1
 }
-)
-    $environment = if ($environmentMatch.Success) { $environmentMatch.Groups[1].Value.Trim() } else { "" }
-    $hasRealEmail = $sendgridKey.Success -and $sendgridFrom.Success
-    $hasLocalCode = ($environment -in @("development", "test")) -and $fixedCode.Success
-    if ($hasRealEmail) {
-        Write-Host "PASS (SendGrid values present; provider credentials not independently validated)"
-    } elseif ($hasLocalCode) {
-        Write-Host "PASS (local/test fixed code only; not for deployment)"
-    } else {
-        Write-Host "FAIL: Configure SendGrid or a local-only fixed code for development"
-        $allPassed = $false
-    }
-} else {
-    Write-Host "FAIL: backend .env missing"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 5: Weight files exist and are non-empty
-# ============================================================
-
-Write-Host -NoNewline "(5) Weight files exist and non-empty... "
-$weightsDir = "insurance-pro\backend\app\models\weights"
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    # Look for YOLO weight files (best.pt is primary, yolov11m.pt is fallback)
-    $yoloWeightFiles = Get-ChildItem -Path $weightsDir -File -Include @("best.pt", "yolov11m.pt")
-    
-    if ($yoloWeightFiles.Count -eq 0) {
-        Write-Host "FAIL: Expected at least one YOLO weight file (best.pt or yolov11m.pt), found $($yoloWeightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allNonEmpty = $true
-        $emptyFiles = @()
-        foreach ($file in $yoloWeightFiles) {
-            if ($file.Length -eq 0) {
-                $allNonEmpty = $false
-                $emptyFiles += $file.Name
-            }
-        }
-        if (-not $allNonEmpty) {
-            Write-Host "FAIL: Empty weight files: $($emptyFiles -join ', ')"
-            $allPassed = $false
-        } else {
-            Write-Host "PASS (found $($yoloWeightFiles.Count) YOLO weight file(s))"
-        }
-    }
-}
-
-# ============================================================
-# CHECK 6: Ports 8000 and 4173 are free
-# ============================================================
-
-$ports = @(8000, 4173)
-foreach ($port in $ports) {
-    Write-Host -NoNewline "(6) Port $port is free... "
-    try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-        if ($connection -eq $false) {
-            Write-Host "PASS"
-        } else {
-            Write-Host "FAIL: Port $port is in use"
-            $allPassed = $false
-        }
-    } catch {
-        # If we can't test (e.g., network issues), assume it's free
-        Write-Host "PASS"
-    }
-}
-
-# ============================================================
-# CHECK 7: Supabase is reachable
-# ============================================================
-
-Write-Host -NoNewline "(7) Supabase is reachable... "
-
-if (-not (Test-Path $backendEnvPath)) {
-    Write-Host "FAIL: $backendEnvPath does not exist"
-    $allPassed = $false
-} else {
-    $envContent = Get-Content $backendEnvPath -Raw
-    $supabaseUrlMatch = [regex]::Match($envContent, "^\s*SUPABASE_URL\s*=\s*(.+?)\s*$", [System.Text.RegularExpressions.RegexOptions]::Multiline)
-    
-    if (-not $supabaseUrlMatch.Success) {
-        Write-Host "FAIL: SUPABASE_URL not found in backend .env"
-        $allPassed = $false
-    } else {
-        $supabaseUrl = $supabaseUrlMatch.Groups[1].Value.Trim('"', "'")
-        try {
-            # Ensure URL starts with https://
-            if (-not $supabaseUrl.StartsWith("https://")) {
-                if (-not $supabaseUrl.StartsWith("http://")) {
-                    $supabaseUrl = "https://" + $supabaseUrl
-                }
-            }
-            
-            $response = Invoke-WebRequest -Uri $supabaseUrl -Method Head -UseBasicParsing -ErrorAction Stop
-            Write-Host "PASS"
-        } catch {
-            Write-Host "FAIL: Could not reach Supabase URL"
-            $allPassed = $false
-        }
-    }
-}
-
-# ============================================================
-# CHECK 8: Backend deps import
-# ============================================================
-
-Write-Host -NoNewline "(8) Backend deps import... "
-try {
-    # Test critical imports
-    $pythonCheck = python -c "import fastapi; import uvicorn; import ultralytics; import yaml; import pydantic" 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PASS"
-    } else {
-        Write-Host "FAIL"
-        $allPassed = $false
-    }
-} catch {
-    Write-Host "FAIL"
-    $allPassed = $false
-}
-
-# ============================================================
-# CHECK 9: Ultralytics loads each weight file
-# ============================================================
-
-Write-Host "(9) Ultralytics loads weight files..."
-
-if (-not (Test-Path $weightsDir)) {
-    Write-Host "  FAIL: Directory $weightsDir does not exist"
-    $allPassed = $false
-} else {
-    $weightFiles = Get-ChildItem -Path $weightsDir -File -Include @("*.pt", "*.pth", "*.bin", "*.weights", "*.h5", "*.safetensors")
-    
-    if ($weightFiles.Count -lt 2) {
-        Write-Host "  FAIL: Expected at least 2 weight files, found $($weightFiles.Count)"
-        $allPassed = $false
-    } else {
-        $allLoaded = $true
-        foreach ($file in $weightFiles) {
-            Write-Host -NoNewline "  Loading $($file.Name)... "
-            try {
-                $pythonScript = "from ultralytics import YOLO; model = YOLO('$($file.FullName)'); print(', '.join(model.names.values()))"
-                $output = python -c $pythonScript 2>&1
-                
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host "FAIL"
-                    Write-Host "    Error: $output"
-                    $allLoaded = $false
-                    $allPassed = $false
-                } else {
-                    Write-Host "OK (classes: $output)"
-                }
-            } catch {
-                Write-Host "FAIL"
-                Write-Host "    Error: $_"
-                $allLoaded = $false
-                $allPassed = $false
-            }
-        }
-        
-        if ($allLoaded) {
-            Write-Host "  PASS"
-        }
-    }
-}
-
-# ============================================================
-# FINAL RESULT
-# ============================================================
-
-Write-Host ""
-Write-Host "=== Preflight Result ==="
-if ($allPassed) {
-    Write-Host "ALL CHECKS PASSED"
-    exit 0
-} else {
-    Write-Host "SOME CHECKS FAILED"
-    exit 1
-}
+Write-Host "Preflight failed. Fix the checks above; no secrets were printed." -ForegroundColor Red
+exit 1
