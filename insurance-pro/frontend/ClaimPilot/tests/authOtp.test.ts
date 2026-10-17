@@ -13,6 +13,7 @@ const originalDescriptors = new Map<string, PropertyDescriptor | undefined>();
 let localStore: Storage;
 let sessionStore: Storage;
 let responseBody: unknown;
+let sentRequestBody: Record<string, unknown> | null;
 
 function memoryStorage(): Storage {
   const store = new Map<string, string>();
@@ -44,9 +45,13 @@ beforeEach(() => {
   localStore = memoryStorage();
   sessionStore = memoryStorage();
   responseBody = undefined;
+  sentRequestBody = null;
   setGlobal('localStorage', localStore);
   setGlobal('sessionStorage', sessionStore);
-  globalThis.fetch = (async () => jsonResponse(responseBody)) as typeof fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+    sentRequestBody = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+    return jsonResponse(responseBody);
+  }) as typeof fetch;
 });
 
 afterEach(() => {
@@ -71,7 +76,7 @@ describe('authOtpApi.verifyOtp — session establishment', () => {
     responseBody = { ...validResponse(), is_verified: false };
 
     await assert.rejects(
-      authOtpApi.verifyOtp('person@example.com', '123456'),
+      authOtpApi.verifyOtp('person@example.com', '123456', 'email', undefined, 'challenge-1'),
       /verification code could not be confirmed/i,
     );
     assert.equal(localStore.getItem('access_token'), null);
@@ -84,7 +89,7 @@ describe('authOtpApi.verifyOtp — session establishment', () => {
     responseBody = unverified;
 
     await assert.rejects(
-      authOtpApi.verifyOtp('person@example.com', '123456'),
+      authOtpApi.verifyOtp('person@example.com', '123456', 'email', undefined, 'challenge-1'),
       /verification code could not be confirmed/i,
     );
     assert.equal(localStore.getItem('access_token'), null);
@@ -99,7 +104,7 @@ describe('authOtpApi.verifyOtp — session establishment', () => {
       await t.test('does not persist an incomplete response', async () => {
         responseBody = invalid;
         await assert.rejects(
-          authOtpApi.verifyOtp('person@example.com', '123456'),
+          authOtpApi.verifyOtp('person@example.com', '123456', 'email', undefined, 'challenge-1'),
           /verification code could not be confirmed/i,
         );
         assert.equal(localStore.getItem('access_token'), null);
@@ -108,12 +113,22 @@ describe('authOtpApi.verifyOtp — session establishment', () => {
     }
   });
 
+  test('requires a challenge id before making an OTP verification request', async () => {
+    await assert.rejects(
+      authOtpApi.verifyOtp('person@example.com', '123456'),
+      /verification challenge is required/i,
+    );
+    assert.equal(sentRequestBody, null);
+    assert.equal(localStore.getItem('access_token'), null);
+  });
+
   test('persists the session only for an explicitly verified complete response', async () => {
     responseBody = validResponse();
 
-    const result = await authOtpApi.verifyOtp('person@example.com', '123456');
+    const result = await authOtpApi.verifyOtp('person@example.com', '123456', 'email', undefined, 'challenge-1');
 
     assert.equal(result.is_verified, true);
+    assert.equal(sentRequestBody?.challenge_id, 'challenge-1');
     assert.equal(localStore.getItem('access_token'), 'verified-test-token');
     assert.equal(sessionStore.getItem('access_token'), 'verified-test-token');
     assert.equal(JSON.parse(localStore.getItem('auth_user') || 'null').id, 'user-1');

@@ -337,6 +337,11 @@ export const Login: React.FC = () => {
       setOtpErrorMessage('Please enter all 6 digits of the verification code.');
       return;
     }
+    if (!challengeId?.trim()) {
+      setOtpError(true);
+      setOtpErrorMessage('This verification challenge is missing or expired. Request a new code and try again.');
+      return;
+    }
     const channel: 'email' | 'sms' = email.includes('@') ? 'email' : 'sms';
     let verified = false;
 
@@ -349,7 +354,7 @@ export const Login: React.FC = () => {
         ? { full_name: name, phone_number: phone, dob, password }
         : undefined;
 
-      const res = await authOtpApi.verifyOtp(email || phone, enteredOtp, channel, metadata, challengeId || undefined);
+      const res = await authOtpApi.verifyOtp(email || phone, enteredOtp, channel, metadata, challengeId);
 
       if (
         res.is_verified === true &&
@@ -541,8 +546,12 @@ export const Login: React.FC = () => {
         const res = await authApi.login({ email, password });
 
         if (res && res.requires_otp) {
-          // Backend password verification succeeded -> Open OTP Modal for Step 2 Verification
-          setChallengeId(res.otp_details?.challenge_id || res.challenge_id || null);
+          // A login OTP must remain bound to the challenge returned after password verification.
+          const nextChallengeId = res.otp_details?.challenge_id || res.challenge_id;
+          if (!nextChallengeId) {
+            throw new Error('Could not create a login verification challenge. Please try signing in again.');
+          }
+          setChallengeId(nextChallengeId);
           setIsAuthenticating(false);
           setShowOtp(true);
           setResendTimer(42);
@@ -565,9 +574,10 @@ export const Login: React.FC = () => {
         setErrors({});
         const channel: 'email' | 'sms' = email.includes('@') ? 'email' : 'sms';
         const res = await authOtpApi.sendOtp(email || phone, channel);
-        if (res && res.challenge_id) {
-          setChallengeId(res.challenge_id);
+        if (!res?.challenge_id) {
+          throw new Error('The server did not return a verification challenge. Please try again.');
         }
+        setChallengeId(res.challenge_id);
         setIsAuthenticating(false);
         setShowOtp(true);
         setResendTimer(42);

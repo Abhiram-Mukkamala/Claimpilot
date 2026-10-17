@@ -272,6 +272,11 @@ export const authOtpApi = {
     metadata?: { full_name?: string; phone_number?: string; dob?: string; password?: string },
     challenge_id?: string
   ) => {
+    const activeChallengeId = typeof challenge_id === 'string' ? challenge_id.trim() : '';
+    if (!activeChallengeId) {
+      throw new Error('A verification challenge is required. Request a new code and try again.');
+    }
+
     const data = await apiRequest<{
       message: string;
       is_verified: boolean;
@@ -284,7 +289,7 @@ export const authOtpApi = {
         identifier,
         otp_code,
         channel,
-        ...(challenge_id ? { challenge_id } : {}),
+        challenge_id: activeChallengeId,
         ...(metadata && { metadata }),
       }),
     });
