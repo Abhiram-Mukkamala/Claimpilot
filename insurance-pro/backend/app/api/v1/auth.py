@@ -55,7 +55,7 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
     )
 
     return {
-        "message": "Credentials verified. Verification code sent to email.",
+        "message": "Password accepted. An email verification challenge was recorded; enter the code once it arrives.",
         "requires_otp": True,
         "email": email,
         "otp_details": otp_response
@@ -86,7 +86,7 @@ async def register_user(payload: UserRegisterRequest, background_tasks: Backgrou
     )
     logger.info("event=auth.register outcome=verification_dispatched")
     return {
-        "message": "Verification code sent. Complete verification to create the account.",
+        "message": "Verification challenge created. Enter the emailed code once it arrives to finish registration.",
         "requires_otp": True,
         "otp_details": otp_response,
     }
