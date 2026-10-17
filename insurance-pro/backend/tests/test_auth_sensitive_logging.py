@@ -134,7 +134,7 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
             return None
 
     auth_module.db = FakeDatabase()
-    auth_module.supabase_admin = SimpleNamespace(auth=FakeAuth(), table=lambda _name: FakeTable())
+    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth())
     auth_module.create_access_token = lambda _payload: "fake-access-token"
     caplog.set_level(logging.INFO)
 
