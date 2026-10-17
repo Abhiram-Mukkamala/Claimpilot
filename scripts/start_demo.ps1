@@ -84,6 +84,8 @@ function Test-EnvFile {
 $backendEnvPath = "insurance-pro\backend\.env"
 $frontendEnvPath = "insurance-pro\frontend\ClaimPilot\.env"
 $backendDir = Join-Path $repoRoot "insurance-pro\backend"
+$backendVenvPython = Join-Path $backendDir ".venv\Scripts\python.exe"
+$backendPython = if (Test-Path -LiteralPath $backendVenvPython) { $backendVenvPython } else { "python" }
 $frontendDir = Join-Path $repoRoot "insurance-pro\frontend\ClaimPilot"
 
 $backendRequiredKeys = @("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET", "ENVIRONMENT")
@@ -139,7 +141,7 @@ if (Test-Path $pidFile) {
 # ============================================================
 
 Write-Host -NoNewline "Starting backend... "
-$backendProcess = Start-Process -FilePath "python" -WorkingDirectory $backendDir -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000") -PassThru
+$backendProcess = Start-Process -FilePath $backendPython -WorkingDirectory $backendDir -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000") -PassThru
 $backendProcess.Id | Out-File $pidFile
 Write-Host "PID=$($backendProcess.Id)"
 

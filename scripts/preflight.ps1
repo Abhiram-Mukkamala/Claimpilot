@@ -7,6 +7,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $repoRoot
 
 $allPassed = $true
+$backendDir = Join-Path $repoRoot "insurance-pro\backend"
+$backendVenvPython = Join-Path $backendDir ".venv\Scripts\python.exe"
+$pythonCommand = if (Test-Path -LiteralPath $backendVenvPython) { $backendVenvPython } else { "python" }
+
 function Write-Check {
     param([string]$Name, [bool]$Passed, [string]$Detail = "")
     if ($Passed) {
@@ -40,7 +44,7 @@ Write-Host "Repository: $repoRoot"
 # 1. Local runtimes.
 $pythonOk = $false
 try {
-    $pythonVersion = python --version 2>&1
+    $pythonVersion = & $pythonCommand --version 2>&1
     $pythonOk = ($pythonVersion -match "Python 3\.11\.")
 } catch { $pythonOk = $false }
 Write-Check "Python 3.11" $pythonOk "Install/select Python 3.11 before running the demo."
@@ -107,26 +111,25 @@ Write-Check "YOLO checkpoint present" ($weightFiles.Count -gt 0) "Expected a non
 
 # 5. Local dependency import check.
 if ($pythonOk) {
-    $importOutput = & python -c "import fastapi, uvicorn, supabase, ultralytics, yaml, pydantic" 2>&1
+    $importOutput = & $pythonCommand -c "import fastapi, uvicorn, supabase, ultralytics, yaml, pydantic" 2>&1
     Write-Check "Backend dependency imports" ($LASTEXITCODE -eq 0) "Activate/install the backend environment from insurance-pro\backend\requirements.txt."
 } else {
     Write-Check "Backend dependency imports" $false "Skipped because Python 3.11 was not found."
 }
 
-# 6. Supabase URL/host reachability (read-only; no DB writes).
+# 6. Supabase DNS/TLS port reachability (read-only; no DB writes).
+# The backend /health/ready route performs the actual Data API query after startup.
 $supabaseUrl = Get-EnvValue -FilePath $backendEnv -Key "SUPABASE_URL"
 $supabaseReachable = $false
 if (-not [string]::IsNullOrWhiteSpace($supabaseUrl)) {
     try {
         $uri = [System.Uri]$supabaseUrl
         if ($uri.Scheme -eq "https") {
-            $healthUrl = $supabaseUrl.TrimEnd("/") + "/auth/v1/health"
-            $null = Invoke-WebRequest -Uri $healthUrl -Method Get -TimeoutSec 10 -ErrorAction Stop
-            $supabaseReachable = $true
+            $supabaseReachable = [bool](Test-NetConnection -ComputerName $uri.DnsSafeHost -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue)
         }
     } catch { $supabaseReachable = $false }
 }
-Write-Check "Supabase HTTPS endpoint reachable" $supabaseReachable "Check the configured project URL and network access; readiness is also checked after backend startup."
+Write-Check "Supabase host accepts HTTPS connections" $supabaseReachable "Check the configured project URL and network access; actual database access is verified by /health/ready."
 
 # 7. The local demo ports need to be free.
 foreach ($port in @(8000, 4173)) {
