@@ -289,12 +289,23 @@ export const authOtpApi = {
       }),
     });
 
-    if (data.access_token) {
-      localStorage.setItem('access_token', data.access_token);
-      sessionStorage.setItem('access_token', data.access_token);
-      localStorage.setItem('auth_user', JSON.stringify(data.user));
-      sessionStorage.setItem('auth_user', JSON.stringify(data.user));
+    // Only establish a browser session when the backend explicitly confirms OTP
+    // verification and returns a complete authenticated identity.
+    if (
+      data?.is_verified !== true ||
+      typeof data.access_token !== 'string' ||
+      !data.access_token.trim() ||
+      !data.user ||
+      typeof data.user !== 'object' ||
+      Array.isArray(data.user)
+    ) {
+      throw new Error('The verification code could not be confirmed. Request a new code and try again.');
     }
+
+    localStorage.setItem('access_token', data.access_token);
+    sessionStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('auth_user', JSON.stringify(data.user));
+    sessionStorage.setItem('auth_user', JSON.stringify(data.user));
     return data;
   },
 };

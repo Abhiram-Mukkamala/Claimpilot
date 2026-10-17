@@ -351,16 +351,22 @@ export const Login: React.FC = () => {
 
       const res = await authOtpApi.verifyOtp(email || phone, enteredOtp, channel, metadata, challengeId || undefined);
 
-      if (res.is_verified || res.access_token) {
+      if (
+        res.is_verified === true &&
+        typeof res.access_token === 'string' &&
+        res.access_token.trim().length > 0 &&
+        res.user &&
+        typeof res.user === 'object'
+      ) {
         verified = true;
-        if (res.user) {
-          authStore.setUserSession({
-            id: res.user.id || res.user.user_id,
-            email: res.user.email,
-            name: name || res.user.full_name || 'Verified User',
-            role: (res.user.role || 'customer') as any
-          }, res.access_token);
-        }
+        authStore.setUserSession({
+          id: res.user.id || res.user.user_id,
+          email: res.user.email,
+          name: name || res.user.full_name || 'Verified User',
+          role: (res.user.role || 'customer') as any
+        }, res.access_token);
+      } else {
+        throw new Error('Verification response was incomplete. Please request a new code.');
       }
     } catch (err: any) {
       console.error('[OTP Verify Error]', err);
