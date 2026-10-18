@@ -8,7 +8,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -235,6 +235,70 @@ def test_login_issues_user_bound_otp_challenge_only_after_password_auth(monkeypa
         ))
     assert error.value.status_code == 401
     assert issued_challenges == []
+
+
+def test_login_with_10_digit_phone_number(monkeypatch):
+    auth_module = _load_auth_module()
+    issued_challenges = []
+
+    async def issue_otp(**kwargs):
+        issued_challenges.append(kwargs)
+        return {"challenge_id": "phone-challenge-1"}
+
+    class FakeAuth:
+        def sign_in_with_password(self, payload):
+            assert payload["email"] == "customer@example.invalid"
+            assert payload["password"] == "test-password"
+            return SimpleNamespace(user=SimpleNamespace(id="authenticated-phone-user"))
+
+    class FakeDatabase:
+        async def select(self, table, params=None, single=False):
+            if table == "profiles":
+                return {
+                    "id": "authenticated-phone-user",
+                    "email": "customer@example.invalid",
+                    "phone_number": "9876543210",
+                    "role": "customer",
+                }
+            return None
+
+    monkeypatch.setattr(auth_module, "issue_otp", issue_otp)
+    auth_module.db = FakeDatabase()
+    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth())
+
+    # Test with standard 10-digit number
+    result = asyncio.run(auth_module.login_user(
+        {"identifier": "9876543210", "password": "test-password"},
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
+
+    assert result["requires_otp"] is True
+    assert issued_challenges[0]["purpose"] == "login"
+    assert issued_challenges[0]["authenticated_user_id"] == "authenticated-phone-user"
+
+    issued_challenges.clear()
+
+    # Test with +91 country prefix
+    result2 = asyncio.run(auth_module.login_user(
+        {"phone": "+91 98765 43210", "password": "test-password"},
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
+    assert result2["requires_otp"] is True
+    assert issued_challenges[0]["purpose"] == "login"
+
+
+def test_login_rejects_invalid_short_phone(monkeypatch):
+    auth_module = _load_auth_module()
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(auth_module.login_user(
+            {"identifier": "12345", "password": "test-password"},
+            BackgroundTasks(),
+            SimpleNamespace(state=SimpleNamespace()),
+        ))
+    assert error.value.status_code == 422
+    assert "Invalid email/phone or password" in str(error.value.detail)
 
 
 @pytest.mark.parametrize("environment", ["development", "test"])

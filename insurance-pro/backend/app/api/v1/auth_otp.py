@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
 import uuid
 import httpx
@@ -111,6 +112,17 @@ async def issue_otp(
 
     user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
     existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
+    if not existing_user and payload.channel == OtpChannel.sms:
+        digits = re.sub(r"\D", "", clean_identifier)
+        if len(digits) >= 10:
+            nat10 = digits[-10:]
+            for cand in [nat10, f"+91{nat10}", f"+91 {nat10}", f"+91-{nat10}"]:
+                try:
+                    existing_user = await db.select("profiles", params={"phone_number": f"eq.{cand}"}, single=True)
+                    if existing_user and isinstance(existing_user, dict) and existing_user.get("id"):
+                        break
+                except Exception:
+                    pass
     user_id = str(existing_user.get("id")) if isinstance(existing_user, dict) and existing_user.get("id") else ""
 
     if purpose == "signup":
@@ -317,6 +329,34 @@ async def verify_otp(payload: OtpVerifyRequest):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
     if not isinstance(records, list):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.")
+    if not records and payload.channel == OtpChannel.sms:
+        digits = re.sub(r"\D", "", identifier)
+        if len(digits) >= 10:
+            nat10 = digits[-10:]
+            for cand in [nat10, f"+91{nat10}", f"+91 {nat10}", f"+91-{nat10}"]:
+                try:
+                    records = await db.select(
+                        "otp_verifications",
+                        params={
+                            "identifier": f"eq.{cand}",
+                            "channel": f"eq.{channel}",
+                            "is_verified": "eq.false",
+                            "order": "created_at.desc,id.desc",
+                            "limit": "1",
+                        },
+                    )
+                    if isinstance(records, list) and records:
+                        break
+                except Exception:
+                    pass
+    if not records and payload.challenge_id:
+        try:
+            records = await db.select(
+                "otp_verifications",
+                params={"id": f"eq.{payload.challenge_id}", "is_verified": "eq.false", "limit": "1"},
+            )
+        except Exception:
+            pass
     if not records:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -338,6 +378,17 @@ async def verify_otp(payload: OtpVerifyRequest):
     # inserted it. Public OTP sends are signup-only and reject existing users.
     try:
         profile = await db.select("profiles", params={user_filter: f"eq.{identifier}"}, single=True)
+        if not profile and payload.channel == OtpChannel.sms:
+            digits = re.sub(r"\D", "", identifier)
+            if len(digits) >= 10:
+                nat10 = digits[-10:]
+                for cand in [nat10, f"+91{nat10}", f"+91 {nat10}", f"+91-{nat10}"]:
+                    try:
+                        profile = await db.select("profiles", params={"phone_number": f"eq.{cand}"}, single=True)
+                        if profile and isinstance(profile, dict) and profile.get("id"):
+                            break
+                    except Exception:
+                        pass
     except Exception as exc:
         logger.error("event=auth.otp.verify outcome=profile_lookup_failed error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc

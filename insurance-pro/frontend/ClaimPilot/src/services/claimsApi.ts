@@ -180,7 +180,8 @@ export function mapBackendClaimToFrontend(raw: any, evidenceList: any[] = [], cl
 // Password & Registration Auth Client
 // ----------------------------------------------------
 export const authApi = {
-  login: async (payload: { email: string; password: string }) => {
+  login: async (payload: { email?: string; identifier?: string; phone?: string; password: string }) => {
+    const rawIdentifier = (payload.identifier || payload.email || payload.phone || '').trim();
     const data = await apiRequest<{
       message: string;
       access_token?: string;
@@ -188,6 +189,8 @@ export const authApi = {
       user?: any;
       requires_otp?: boolean;
       email?: string;
+      identifier?: string;
+      channel?: string;
       challenge_id?: string;
       otp_details?: {
         message: string;
@@ -198,7 +201,11 @@ export const authApi = {
       };
     }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        email: rawIdentifier,
+        identifier: rawIdentifier,
+        password: payload.password,
+      }),
     });
 
     if (data.access_token) {

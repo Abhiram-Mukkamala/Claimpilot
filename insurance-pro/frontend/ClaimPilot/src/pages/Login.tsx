@@ -210,7 +210,6 @@ export const Login: React.FC = () => {
     tl.to(formColRef.current, { opacity: 0, duration: 0.30, ease: 'power2.out' }, 0);
     tl.to('.login-branding-item:not(:first-child)', { opacity: 0, duration: 0.30, ease: 'power2.out' }, 0);
     tl.to(statusRef.current, { opacity: 0, duration: 0.30, ease: 'power2.out' }, 0);
-    tl.to(brandingRef.current, { borderRightColor: 'transparent', duration: 0.30 }, 0);
     tl.to(glassRef.current, { opacity: 0, y: -20, duration: 0.30, ease: 'power2.out' }, 0);
 
     if (logoItemRef.current) {
@@ -325,7 +324,8 @@ export const Login: React.FC = () => {
     }
     const digits = val.replace(/\D/g, '');
     if (digits.length >= 10) {
-      return `${digits.slice(0, 3)}******${digits.slice(-4)}`;
+      const nat = digits.slice(-10);
+      return `+91 ${nat.slice(0, 2)}******${nat.slice(-2)}`;
     }
     return val;
   };
@@ -475,15 +475,30 @@ export const Login: React.FC = () => {
     return basicRegex.test(trimmed) && !trimmed.includes('..');
   };
 
+  const isValidPhone = (val: string): boolean => {
+    if (!val || typeof val !== 'string') return false;
+    const trimmed = val.trim();
+    if (!/^\+?[0-9\s\-().]+$/.test(trimmed)) return false;
+    const digits = trimmed.replace(/\D/g, '');
+    // Standard 10-digit phone number, or 10-digit with 91 (India) or 1 (North America) country prefix
+    if (digits.length === 10) return true;
+    if (digits.length === 12 && digits.startsWith('91')) return true;
+    if (digits.length === 11 && digits.startsWith('1')) return true;
+    return false;
+  };
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
     if (!isSignUp) {
-      const isEmailValid = Boolean(email && isValidEmail(email));
+      const trimmed = email.trim();
+      const isEmailValid = Boolean(trimmed && isValidEmail(trimmed));
+      const isPhoneValid = Boolean(trimmed && isValidPhone(trimmed));
+      const isIdentifierValid = isEmailValid || isPhoneValid;
       const isPasswordValid = Boolean(password && password.length >= 6);
 
-      if (!isEmailValid || !isPasswordValid) {
-        newErrors.auth = 'Enter a valid email address and password.';
+      if (!isIdentifierValid || !isPasswordValid) {
+        newErrors.auth = 'Invalid email/phone or password';
       }
 
       setErrors(newErrors);
@@ -521,11 +536,11 @@ export const Login: React.FC = () => {
       }
     }
 
-    const phoneDigits = phone.replace(/\D/g, '');
-    if (!phone.trim()) {
+    const phoneTrimmed = phone.trim();
+    if (!phoneTrimmed) {
       newErrors.phone = 'Phone number is required';
-    } else if (phoneDigits.length < 10) {
-      newErrors.phone = 'Please enter a valid 10-digit phone number';
+    } else if (!isValidPhone(phoneTrimmed)) {
+      newErrors.phone = 'Please enter a valid phone number';
     }
 
     setErrors(newErrors);
@@ -565,7 +580,7 @@ export const Login: React.FC = () => {
         }
       } catch (err: any) {
         setIsAuthenticating(false);
-        setErrors({ auth: err?.message || 'Invalid email or password' });
+        setErrors({ auth: err?.message || 'Invalid email/phone or password' });
       }
     } else {
       // 2. Dispatch OTP for new user registration
@@ -622,18 +637,24 @@ export const Login: React.FC = () => {
                 {['ClaimPilot', 'The Problem', 'How it Works', 'Who are We'].map((label, i) => (
                   <button
                     key={label}
+                    type="button"
                     onClick={() => {
                       const id = navItems[i];
-                      const el = document.getElementById(id);
                       if (id === 'hero') document.querySelector('.about-page-container')?.scrollTo({ top: 0, behavior: 'smooth' });
-                      else el?.scrollIntoView({ behavior: 'smooth' });
+                      else {
+                        const targetId = id === 'team' ? 'who-are-we' : id;
+                        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
+                      }
                     }}
                     style={{
                       width: '100px',
                       textAlign: 'center',
                       fontSize: '0.875rem',
                       fontWeight: 500,
-                      color: activeIndex === i ? 'var(--text-primary)' : 'var(--text-secondary)'
+                      color: activeIndex === i ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer'
                     }}
                   >
                     {label}
@@ -650,6 +671,7 @@ export const Login: React.FC = () => {
                 />
               </div>
               <button
+                type="button"
                 onClick={reverseAboutTransition}
                 className="btn btn-primary"
                 style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: 600, borderRadius: 'var(--radius-md)' }}
@@ -661,7 +683,12 @@ export const Login: React.FC = () => {
         </div>
       </div>
 
-      <About isVisible={transitionState === 'about' || transitionState === 'enteringAbout'} onReturn={reverseAboutTransition} onSectionChange={setActiveSection} />
+      <About
+        isVisible={transitionState === 'about' || transitionState === 'enteringAbout'}
+        onReturn={reverseAboutTransition}
+        onSectionChange={setActiveSection}
+        showNav={false}
+      />
 
       <div
         ref={containerRef}
@@ -681,7 +708,6 @@ export const Login: React.FC = () => {
             display: 'flex',
             flexDirection: 'column',
             padding: '3.5rem',
-            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
             position: 'relative',
             zIndex: 1,
           }}
@@ -749,7 +775,6 @@ export const Login: React.FC = () => {
 
           <div ref={statusRef} style={{
             paddingTop: '1.5rem',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
           }}>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--text-secondary)', opacity: 0.7 }}>
               SYSTEM STATUS: <span style={{ color: 'var(--accent)' }}>OPERATIONAL</span>
@@ -859,17 +884,18 @@ export const Login: React.FC = () => {
 
               <div>
                 <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                  Email address {isSignUp && <span style={{ color: 'var(--danger)' }}>*</span>}
+                  {isSignUp ? 'Email address' : 'Email address or Phone number'} {isSignUp && <span style={{ color: 'var(--danger)' }}>*</span>}
                 </label>
                 <input
-                  type="email"
+                  type={isSignUp ? "email" : "text"}
                   className="form-input"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (errors.email || errors.auth) setErrors({ ...errors, email: '', auth: '' });
                   }}
-                  placeholder={isSignUp ? "agent@claimpilot.ai" : "Enter your email address"}
+                  placeholder={isSignUp ? "agent@claimpilot.ai" : "Enter email or phone number"}
+                  autoComplete={isSignUp ? "email" : "username"}
                   style={{ borderColor: (errors.email || errors.auth) ? 'var(--danger)' : undefined }}
                 />
                 {errors.email && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.email}</p>}
@@ -960,30 +986,6 @@ export const Login: React.FC = () => {
                 </button>
               </p>
             </div>
-
-            {!isSignUp && (
-              <div style={{
-                marginTop: '2rem',
-                paddingTop: '1.5rem',
-                borderTop: '1px solid var(--border)',
-              }}>
-                <p style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.6875rem',
-                  color: 'var(--text-secondary)',
-                  letterSpacing: '0.01em',
-                  marginBottom: '0.375rem',
-                }}>
-                  DEMO CREDENTIALS
-                </p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  Agent: <span style={{ color: 'var(--text-primary)' }}>agent@claimpilot.ai</span>
-                </p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                  Customer: <span style={{ color: 'var(--text-primary)' }}>any other email</span>
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1087,7 +1089,8 @@ export const Login: React.FC = () => {
                   onClick={async () => {
                     try {
                       if (isSignUp) {
-                        const res = await authOtpApi.sendOtp(email, 'email');
+                        const channel: 'email' | 'sms' = email.includes('@') ? 'email' : 'sms';
+                        const res = await authOtpApi.sendOtp(email || phone, channel);
                         if (!res?.challenge_id) {
                           throw new Error('The server did not return a verification challenge. Please retry.');
                         }

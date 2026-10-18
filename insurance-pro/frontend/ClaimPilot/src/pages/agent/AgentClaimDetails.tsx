@@ -690,8 +690,8 @@ export const AgentClaimDetails = () => {
 
       {/* Modals */}
       {showApproveModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={approveModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={approveModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1rem' }}>Approve Claim</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -713,7 +713,7 @@ export const AgentClaimDetails = () => {
                   setEngineerEstimate(v);
                 }}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Enter engineer estimated cost..."
               />
             </div>
@@ -732,7 +732,7 @@ export const AgentClaimDetails = () => {
                   setApprovedAmount(v);
                 }}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Enter approved payout amount..."
               />
             </div>
@@ -744,7 +744,7 @@ export const AgentClaimDetails = () => {
                 value={approveReason}
                 onChange={e => setApproveReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '80px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '80px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Explain the rationale for this settlement amount..."
               />
             </div>
@@ -784,8 +784,8 @@ export const AgentClaimDetails = () => {
       )}
 
       {showRejectModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={rejectModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={rejectModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.75rem', color: 'var(--danger)' }}>Reject Claim</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -803,7 +803,7 @@ export const AgentClaimDetails = () => {
                 value={rejectionReason}
                 onChange={e => setRejectionReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Provide clear reasons why this claim was rejected..."
               />
             </div>
@@ -843,8 +843,8 @@ export const AgentClaimDetails = () => {
       )}
 
       {showRequestInfoModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={requestInfoModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={requestInfoModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--warning)' }}>Request More Information</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -862,7 +862,7 @@ export const AgentClaimDetails = () => {
                 value={requestInfoReason}
                 onChange={e => setRequestInfoReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Specify what additional documents, photos, or explanations are needed to process this claim..."
               />
             </div>

@@ -6,7 +6,7 @@
  */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { authOtpApi } from '../src/services/claimsApi.ts';
+import { authOtpApi, authApi } from '../src/services/claimsApi.ts';
 
 const originalFetch = globalThis.fetch;
 const originalDescriptors = new Map<string, PropertyDescriptor | undefined>();
@@ -133,5 +133,38 @@ describe('authOtpApi.verifyOtp — session establishment', () => {
     assert.equal(sessionStore.getItem('access_token'), 'verified-test-token');
     assert.equal(JSON.parse(localStore.getItem('auth_user') || 'null').id, 'user-1');
     assert.equal(JSON.parse(sessionStore.getItem('auth_user') || 'null').email, 'person@example.com');
+  });
+});
+
+describe('authApi.login — email and 10-digit phone number support', () => {
+  test('forwards email correctly in payload', async () => {
+    responseBody = {
+      message: 'Password accepted',
+      requires_otp: true,
+      email: 'test@example.com',
+      otp_details: { challenge_id: 'ch-email-1', identifier: 'test@example.com', channel: 'email', expires_in_minutes: 10, message: 'sent' }
+    };
+
+    const res = await authApi.login({ email: 'test@example.com', password: 'secretpassword' });
+    assert.equal(res.requires_otp, true);
+    assert.equal(sentRequestBody?.email, 'test@example.com');
+    assert.equal(sentRequestBody?.identifier, 'test@example.com');
+    assert.equal(sentRequestBody?.password, 'secretpassword');
+  });
+
+  test('forwards 10-digit phone number correctly in payload', async () => {
+    responseBody = {
+      message: 'Password accepted',
+      requires_otp: true,
+      identifier: '9876543210',
+      channel: 'sms',
+      otp_details: { challenge_id: 'ch-phone-1', identifier: '9876543210', channel: 'sms', expires_in_minutes: 10, message: 'sent' }
+    };
+
+    const res = await authApi.login({ email: '9876543210', password: 'secretpassword' });
+    assert.equal(res.requires_otp, true);
+    assert.equal(sentRequestBody?.identifier, '9876543210');
+    assert.equal(sentRequestBody?.email, '9876543210');
+    assert.equal(sentRequestBody?.password, 'secretpassword');
   });
 });

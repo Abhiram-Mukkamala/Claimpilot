@@ -1600,7 +1600,7 @@ a.btn-ghost:hover {
 
   .login-branding {
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    border-bottom: none;
     padding: 2rem;
   }
 
