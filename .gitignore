@@ -37,6 +37,7 @@ htmlcov/
 *.pt
 *.pth
 *.onnx
+!insurance-pro/backend/app/models/weights/best.pt
 
 # Agent & CLI caches
 .agents/

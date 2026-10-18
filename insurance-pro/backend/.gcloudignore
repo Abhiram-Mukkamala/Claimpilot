@@ -1,0 +1,38 @@
+# .gcloudignore for ClaimPilot FastAPI backend
+.git/
+.gitignore
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local virtualenvs
+venv/
+.venv/
+env/
+ENV/
+
+# Local env files with secrets
+.env
+.env.*
+*.env
+!.env.example
+
+# Development tools & IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary logs
+logs/
+*.log
+
+# Explicitly ensure model weights are included in the uploaded build context
+!app/models/weights/
+!app/models/weights/*.pt
