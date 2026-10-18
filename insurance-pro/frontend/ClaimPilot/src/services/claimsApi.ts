@@ -56,7 +56,12 @@ export async function apiRequest<T = any>(endpoint: string, options: RequestOpti
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
+      const isAuthEndpoint =
+        /\/auth\/(login|register|otp\/send|otp\/verify)$/.test(
+          url.split('?')[0]
+        );
+
+      if (response.status === 401 && !isAuthEndpoint) {
         console.warn(`[API 401 UNAUTHORIZED] ${url}`);
         localStorage.removeItem('access_token');
         localStorage.removeItem('auth_user');

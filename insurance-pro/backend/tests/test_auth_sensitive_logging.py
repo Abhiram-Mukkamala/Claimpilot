@@ -134,7 +134,7 @@ def test_login_and_registration_never_log_canary_password(monkeypatch, capsys, c
             return None
 
     auth_module.db = FakeDatabase()
-    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth())
+    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth(), table=lambda _name: FakeTable())
     auth_module.create_access_token = lambda _payload: "fake-access-token"
     caplog.set_level(logging.INFO)
 
@@ -288,3 +288,111 @@ def test_nonproduction_otp_uses_fixed_code_without_returning_it(monkeypatch, env
 def test_fixed_otp_configuration_is_rejected_at_module_startup(monkeypatch, environment, fixed_code):
     with pytest.raises(RuntimeError):
         _load_auth_otp_module(monkeypatch, environment, fixed_code)
+
+
+def _load_otp_with_capture_db(monkeypatch, purpose, profile_exists, authenticated_user_id=""):
+    """Load auth_otp.py with a fake DB that captures OTP insert records."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("OTP_DEV_FIXED_CODE", raising=False)
+
+    captured = {}
+
+    class FakeDb:
+        async def insert(self, table, data):
+            captured["table"] = table
+            captured["data"] = data
+            return data
+
+        async def select(self, table, params=None, single=False):
+            if table == "profiles" and profile_exists:
+                return {"id": "user-123", "email": "existing@example.invalid"}
+            if table == "otp_verifications":
+                return []
+            return None
+
+    fake_db_module = ModuleType("app.db.supabase")
+    fake_db_module.db = FakeDb()
+    fake_db_module.supabase_admin = object()
+    fake_email_module = ModuleType("app.services.email")
+
+    async def fake_dispatch_email(*_args, **_kwargs):
+        return None
+
+    fake_email_module._dispatch_email = fake_dispatch_email
+    replacements = {
+        "app.db.supabase": fake_db_module,
+        "app.services.email": fake_email_module,
+    }
+    absent = object()
+    originals = {key: sys.modules.get(key, absent) for key in replacements}
+    sys.modules.update(replacements)
+    try:
+        otp_module = _load_module(
+            f"_claimpilot_otp_capture_{purpose}_{profile_exists}",
+            BACKEND / "app" / "api" / "v1" / "auth_otp.py",
+        )
+    finally:
+        for key, original in originals.items():
+            if original is absent:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = original
+    return otp_module, captured
+
+
+def test_otp_signup_records_purpose_signup_and_empty_user_id(monkeypatch):
+    """Verify signup OTP challenge persists purpose='signup' and user_id=''."""
+    otp_module, captured = _load_otp_with_capture_db(monkeypatch, "signup", False)
+
+    from app.schemas.claim import OtpChannel, OtpSendRequest
+    background = BackgroundTasks()
+    asyncio.run(otp_module.issue_otp(
+        OtpSendRequest(identifier="new@example.invalid", channel=OtpChannel.email),
+        background,
+        purpose="signup",
+    ))
+    assert captured["data"]["purpose"] == "signup"
+    assert captured["data"]["user_id"] is None
+
+
+def test_otp_login_records_purpose_login_and_user_id(monkeypatch):
+    """Verify login OTP challenge persists purpose='login' and bound user_id."""
+    otp_module, captured = _load_otp_with_capture_db(monkeypatch, "login", True, "user-123")
+
+    from app.schemas.claim import OtpChannel, OtpSendRequest
+    background = BackgroundTasks()
+    asyncio.run(otp_module.issue_otp(
+        OtpSendRequest(identifier="existing@example.invalid", channel=OtpChannel.email),
+        background,
+        purpose="login",
+        authenticated_user_id="user-123",
+    ))
+    assert captured["data"]["purpose"] == "login"
+    assert captured["data"]["user_id"] == "user-123"
+
+
+def test_login_uses_supabase_public_not_admin(monkeypatch):
+    """Verify password sign-in routes through supabase_public (isolated client),
+    not the shared supabase_admin service-role client."""
+    auth_module = _load_auth_module()
+    calls = {"admin": 0, "public": 0}
+
+    class FakeAuth:
+        def sign_in_with_password(self, _payload):
+            calls["public"] += 1
+            return SimpleNamespace(user=SimpleNamespace(id="user-123"))
+
+    auth_module.db = SimpleNamespace()
+    auth_module.supabase_public = SimpleNamespace(auth=FakeAuth(), table=lambda _name: None)
+    auth_module.supabase_admin = SimpleNamespace(auth=SimpleNamespace(
+        sign_in_with_password=lambda _p: calls.__setitem__("admin", calls["admin"] + 1)
+    ))
+    auth_module.create_access_token = lambda _payload: "fake-token"
+
+    asyncio.run(auth_module.login_user(
+        {"email": "login@example.invalid", "password": "test-password"},
+        BackgroundTasks(),
+        SimpleNamespace(state=SimpleNamespace()),
+    ))
+    assert calls["public"] == 1
+    assert calls["admin"] == 0

@@ -612,7 +612,7 @@ def test_stage_d_missing_model_routes_safely_to_manual_review(test_app, mock_db,
     assert result["detected_damages"] == []
 
     # 2. Persisted DB state confirms real failure path execution
-    assert mock_db.claims[claim_id]["status"] == "manual_review"
+    assert mock_db.claims[claim_id]["status"] == "flagged"
     assert claim_id in mock_db.ai_analyses
     persisted = mock_db.ai_analyses[claim_id]
     assert persisted["analysis_status"] == "failed"
@@ -620,21 +620,21 @@ def test_stage_d_missing_model_routes_safely_to_manual_review(test_app, mock_db,
     assert persisted.get("estimated_cost_min") is None or persisted.get("estimated_cost_min") == 0
     assert persisted.get("estimated_cost_max") is None or persisted.get("estimated_cost_max") == 0
 
-    # 3. Agent API response matches persisted manual_review failure state
+    # 3. Agent API response matches persisted flagged failure state
     agent_client = auth_client(test_app, "agent-701", "agent")
     agent_resp = agent_client.get(f"/api/v1/agent/claims/{claim_id}")
     assert agent_resp.status_code == 200
     agent_data = agent_resp.json()
-    assert agent_data["claim"]["status"] == "manual_review"
+    assert agent_data["claim"]["status"] == "flagged"
     assert agent_data["ai_analysis"]["analysis_status"] == "failed"
     assert agent_data["ai_analysis"]["detected_damages"] == []
 
-    # 4. Customer API response matches persisted manual_review failure state
+    # 4. Customer API response matches persisted flagged failure state
     cust_client = auth_client(test_app, owner_id, "customer")
     cust_resp = cust_client.get(f"/api/v1/claims/{claim_id}")
     assert cust_resp.status_code == 200
     cust_data = cust_resp.json()
-    assert cust_data["claim"]["status"] == "manual_review"
+    assert cust_data["claim"]["status"] == "flagged"
     assert cust_data["ai_analysis"]["analysis_status"] == "failed"
     assert cust_data["ai_analysis"]["detected_damages"] == []
 
@@ -679,7 +679,7 @@ def test_stage_d_failed_model_inference_routes_to_manual_review(test_app, mock_d
     assert result["detected_damages"] == []
 
     # Assert persisted claim status and analysis
-    assert mock_db.claims[claim_id]["status"] == "manual_review"
+    assert mock_db.claims[claim_id]["status"] == "flagged"
     assert mock_db.ai_analyses[claim_id]["analysis_status"] == "failed"
     assert mock_db.ai_analyses[claim_id]["detected_damages"] == []
 
@@ -687,7 +687,7 @@ def test_stage_d_failed_model_inference_routes_to_manual_review(test_app, mock_d
     agent_client = auth_client(test_app, "agent-701", "agent")
     agent_resp = agent_client.get(f"/api/v1/agent/claims/{claim_id}")
     assert agent_resp.status_code == 200
-    assert agent_resp.json()["claim"]["status"] == "manual_review"
+    assert agent_resp.json()["claim"]["status"] == "flagged"
     assert agent_resp.json()["ai_analysis"]["analysis_status"] == "failed"
 
 
@@ -724,7 +724,7 @@ def test_stage_e_approval_without_estimate_fails_safely_no_fallback(test_app, mo
         "claim_number": "CLM-NO-EST",
         "user_id": "cust-101",
         "assigned_agent_id": "agent-701",
-        "status": "manual_review",
+        "status": "flagged",
     }
     # No AI analysis present in mock_db.ai_analyses
 
@@ -737,8 +737,8 @@ def test_stage_e_approval_without_estimate_fails_safely_no_fallback(test_app, mo
     detail = resp.json()["detail"]
     assert detail["status"] == "manual_review_required"
     assert "Cannot approve claim without a valid settlement estimate" in detail["message"]
-    # Verify claim status remained manual_review
-    assert mock_db.claims[claim_id]["status"] == "manual_review"
+    # Verify claim status remained flagged
+    assert mock_db.claims[claim_id]["status"] == "flagged"
 
 
 def test_stage_e_approval_with_explicit_adjuster_amount_succeeds(test_app, mock_db):
@@ -749,7 +749,7 @@ def test_stage_e_approval_with_explicit_adjuster_amount_succeeds(test_app, mock_
         "claim_number": "CLM-MAN-EST",
         "user_id": "cust-101",
         "assigned_agent_id": "agent-701",
-        "status": "manual_review",
+        "status": "flagged",
     }
 
     agent_client = auth_client(test_app, "agent-701", "agent")
@@ -762,7 +762,6 @@ def test_stage_e_approval_with_explicit_adjuster_amount_succeeds(test_app, mock_
     claim_after = mock_db.claims[claim_id]
     assert claim_after["status"] == "agent_approved"
     assert claim_after["approved_amount"] == 28500.0
-    assert claim_after["settlement_offer_amount"] == 28500.0
 
 
 def test_stage_e_terminal_state_modifications_rejected(test_app, mock_db):
@@ -899,3 +898,224 @@ def test_stage_g_settlement_conflict_when_db_update_returns_empty(test_app, mock
     })
     assert resp.status_code == 409
     assert "Settlement decision was not applied" in resp.json()["detail"]["message"]
+
+
+def test_stage_e_settlement_token_not_exposed_in_response(test_app, mock_db):
+    """Verify agent APPROVE does not return the settlement_token in the API response
+    (it is delivered only via email)."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-TOKEN",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "under_review",
+        "settlement_offer_amount": None,
+    }
+    mock_db.ai_analyses[claim_id] = {
+        "claim_id": claim_id,
+        "estimated_cost_min": 10000.0,
+        "estimated_cost_max": 15000.0,
+        "detected_damages": [],
+    }
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "APPROVE",
+        "reason": "Approved based on assessment.",
+        "approved_amount": 14000.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    # Token must not be leaked in the response body
+    assert "settlement_token" not in data
+    assert "token" not in data
+    assert data["new_status"] == "agent_approved"
+    assert data["estimated_bounds"]["min"] == 14000.0
+    assert data["estimated_bounds"]["max"] == 14000.0
+
+
+def test_stage_e_agent_approve_writes_only_approved_amount(test_app, mock_db):
+    """Verify agent APPROVE writes schema-defined `approved_amount`, not `settlement_offer_amount`."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-AMT",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "under_review",
+    }
+    mock_db.ai_analyses[claim_id] = {
+        "claim_id": claim_id,
+        "estimated_cost_min": 10000.0,
+        "estimated_cost_max": 15000.0,
+        "detected_damages": [],
+    }
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "APPROVE",
+        "reason": "Approved.",
+        "approved_amount": 14000.0,
+    })
+    assert resp.status_code == 200
+    claim_after = mock_db.claims[claim_id]
+    assert claim_after["approved_amount"] == 14000.0
+    assert "settlement_offer_amount" not in claim_after
+
+
+def test_stage_e_agent_approve_stale_state_conflict(test_app, mock_db, monkeypatch):
+    """Verify agent APPROVE returns exactly HTTP 409 when conditional update matches no rows (stale state)."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-STALE",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "agent_approved",  # pre-read passes, but update will return empty (concurrent change)
+    }
+    mock_db.ai_analyses[claim_id] = {
+        "claim_id": claim_id,
+        "estimated_cost_min": 10000.0,
+        "estimated_cost_max": 15000.0,
+        "detected_damages": [],
+    }
+
+    async def empty_update(table, filters, data):
+        return []
+
+    monkeypatch.setattr(mock_db, "update", empty_update)
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "APPROVE",
+        "reason": "Late approval.",
+        "approved_amount": 14000.0,
+    })
+    assert resp.status_code == 409, f"Expected 409, got {resp.status_code}"
+    detail = resp.json()["detail"]
+    assert "modified by another operation" in detail["message"]
+    assert detail["claim_id"] == claim_id
+
+
+def test_stage_e_agent_reject_stale_state_conflict(test_app, mock_db, monkeypatch):
+    """Verify agent REJECT returns exactly HTTP 409 when conditional update matches no rows (stale state)."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-REJ-STALE",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "under_review",
+    }
+
+    async def empty_update(table, filters, data):
+        return []
+
+    monkeypatch.setattr(mock_db, "update", empty_update)
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "REJECT",
+        "reason": "Late rejection reason with sufficient length.",
+    })
+    assert resp.status_code == 409, f"Expected 409, got {resp.status_code}"
+    detail = resp.json()["detail"]
+    assert "modified by another operation" in detail["message"]
+    assert detail["claim_id"] == claim_id
+
+
+def test_stage_e_agent_request_info_stale_state_conflict(test_app, mock_db, monkeypatch):
+    """Verify agent REQUEST_INFO returns exactly HTTP 409 when conditional update matches no rows (stale state)."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-REQ-STALE",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "under_review",
+    }
+
+    async def empty_update(table, filters, data):
+        return []
+
+    monkeypatch.setattr(mock_db, "update", empty_update)
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "REQUEST_INFO",
+        "requested_items": ["damage_photos"],
+    })
+    assert resp.status_code == 409, f"Expected 409, got {resp.status_code}"
+    detail = resp.json()["detail"]
+    assert "modified by another operation" in detail["message"]
+    assert detail["claim_id"] == claim_id
+
+
+def test_stage_f_customer_settlement_stale_state_conflict(test_app, mock_db):
+    """Verify customer settlement returns 409 when the claim status changed after pre-read."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-STALE-SETTLE",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "agent_approved",
+    }
+
+    cust_client = auth_client(test_app, "cust-101", "customer")
+
+    # First decision succeeds (status matches agent_approved)
+    resp1 = cust_client.post("/api/v1/claims/portal/decision", json={
+        "claim_id": claim_id,
+        "decision": "ACCEPT",
+    })
+    assert resp1.status_code == 200
+
+    # Second decision on the same claim: status is now settlement_accepted, not agent_approved
+    resp2 = cust_client.post("/api/v1/claims/portal/decision", json={
+        "claim_id": claim_id,
+        "decision": "ACCEPT",
+    })
+    assert resp2.status_code == 400
+    assert "agent_approved" in resp2.json()["detail"]["message"]
+
+
+# ── NEW STAGE H: Security Regression Tests ───────────────────────────────────
+
+def test_stage_h_settlement_token_only_in_email_not_response(test_app, mock_db, monkeypatch):
+    """Verify settlement token is sent via email but not present in API response."""
+    claim_id = str(uuid.uuid4())
+    mock_db.claims[claim_id] = {
+        "id": claim_id,
+        "claim_number": "CLM-EMAIL",
+        "user_id": "cust-101",
+        "assigned_agent_id": "agent-701",
+        "status": "under_review",
+    }
+    mock_db.ai_analyses[claim_id] = {
+        "claim_id": claim_id,
+        "estimated_cost_min": 10000.0,
+        "estimated_cost_max": 15000.0,
+        "detected_damages": [],
+    }
+
+    email_calls = []
+    async def fake_send_agent_approval_email(to_email, claim_number, token, min_cost, max_cost, claimant_name):
+        email_calls.append({"to": to_email, "token": token})
+
+    monkeypatch.setattr("app.api.v1.agent.send_agent_approval_email", fake_send_agent_approval_email)
+
+    agent_client = auth_client(test_app, "agent-701", "agent")
+    resp = agent_client.post(f"/api/v1/agent/claims/{claim_id}/action", json={
+        "action": "APPROVE",
+        "reason": "Approved.",
+        "approved_amount": 14000.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "settlement_token" not in data
+    # But the email path received the token
+    assert len(email_calls) == 1
+    assert email_calls[0]["token"] is not None
+    assert len(email_calls[0]["token"]) > 0

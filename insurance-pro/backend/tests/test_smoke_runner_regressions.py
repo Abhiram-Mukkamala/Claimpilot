@@ -329,3 +329,54 @@ def test_login_sensitive_values_are_redacted_in_output(capsys):
     assert canary_password not in all_output, "Canary password leaked to output!"
     assert canary_otp not in all_output, "Canary OTP leaked to output!"
     assert canary_challenge not in all_output, "Canary challenge leaked to output!"
+
+
+def test_login_fails_when_is_verified_is_missing(capsys):
+    """Login must fail if is_verified key is absent from verification response."""
+    client = MockHttpClient(
+        login_resp=MockResponse(200, {
+            "requires_otp": True,
+            "otp_details": {"challenge_id": "ch-alpha-999"},
+        }),
+        verify_resp=MockResponse(200, {
+            "access_token": "verified-jwt-token-xyz",
+        }),
+    )
+    token = smoke.login(client, "user@claimpilot.test", "pass123", "184205", "Customer")
+    assert token is None
+    captured = capsys.readouterr()
+    assert "did not confirm" in captured.out
+
+
+def test_login_fails_when_is_verified_is_none(capsys):
+    """Login must fail if is_verified is explicitly null."""
+    client = MockHttpClient(
+        login_resp=MockResponse(200, {
+            "requires_otp": True,
+            "otp_details": {"challenge_id": "ch-alpha-999"},
+        }),
+        verify_resp=MockResponse(200, {
+            "is_verified": None,
+            "access_token": "verified-jwt-token-xyz",
+        }),
+    )
+    token = smoke.login(client, "user@claimpilot.test", "pass123", "184205", "Customer")
+    assert token is None
+    captured = capsys.readouterr()
+    assert "did not confirm" in captured.out
+
+
+def test_login_succeeds_when_is_verified_is_true(capsys):
+    """Login must succeed only when is_verified is explicitly True."""
+    client = MockHttpClient(
+        login_resp=MockResponse(200, {
+            "requires_otp": True,
+            "otp_details": {"challenge_id": "ch-alpha-999"},
+        }),
+        verify_resp=MockResponse(200, {
+            "is_verified": True,
+            "access_token": "verified-jwt-token-xyz",
+        }),
+    )
+    token = smoke.login(client, "user@claimpilot.test", "pass123", "184205", "Customer")
+    assert token == "verified-jwt-token-xyz"

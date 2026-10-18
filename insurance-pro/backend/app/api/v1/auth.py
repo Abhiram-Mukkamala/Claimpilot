@@ -29,6 +29,7 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
 
     # Validate the password before creating the login OTP challenge.
     try:
+        # Never perform end-user password sign-in on the shared service-role client.
         auth_res = supabase_public.auth.sign_in_with_password({
             "email": email,
             "password": password,
