@@ -175,8 +175,19 @@ async def catalog_evidence(
     try:
         created = await db.insert("claim_evidence", evidence_data)
 
-        # Trigger AI assessment in background when a damage photo is uploaded
+        # Trigger AI assessment when a damage photo is uploaded
         if category_val == "photo":
+            sync_mode = (
+                getattr(settings, "AI_PROCESSING_SYNC", False)
+                or os.getenv("AI_PROCESSING_SYNC", "false").lower() in {"1", "true", "yes"}
+            )
+            if sync_mode:
+                analysis = await trigger_ai_assessment(claim_id=real_claim_id, background=False)
+                return {
+                    "message": "Evidence cataloged successfully",
+                    "evidence": created,
+                    "analysis": analysis,
+                }
             background_tasks.add_task(trigger_ai_assessment, claim_id=real_claim_id)
 
         return {"message": "Evidence cataloged successfully", "evidence": created}
