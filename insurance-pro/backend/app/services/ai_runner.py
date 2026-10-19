@@ -91,7 +91,7 @@ async def _mark_analysis_failed(claim_id: str, message: str) -> Dict[str, Any]:
         await db.update(
             "claims",
             filters={"id": f"eq.{claim_id}"},
-            data={"status": "manual_review"},
+            data={"status": "flagged"},
         )
     except Exception as exc:
         logger.error("Could not flag claim %s for manual review (%s)", claim_id, type(exc).__name__)

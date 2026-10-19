@@ -664,7 +664,7 @@ def test_smoke_login_completes_otp_flow_without_printing_code(monkeypatch, capsy
             self.calls.append((url, json))
             if url.endswith("/auth/login"):
                 return Response(200, {"requires_otp": True, "otp_details": {"challenge_id": "challenge-canary"}})
-            return Response(200, {"access_token": "access-token-canary"})
+            return Response(200, {"access_token": "access-token-canary", "is_verified": True})
 
     client = Client()
     token = smoke.login(client, "customer@example.invalid", "password-canary", otp_code, "Customer")

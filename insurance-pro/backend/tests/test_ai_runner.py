@@ -240,7 +240,7 @@ def test_inference_failure_is_saved_and_claim_moves_to_manual_review(runtime, mo
     assert result["error_message"] == "Damage detection failed for all uploaded photos."
     assert "private detail" not in result["error_message"]
     assert runtime.ai_analysis["analysis_status"] == "failed"
-    assert runtime.claim["status"] == "manual_review"
+    assert runtime.claim["status"] == "flagged"
     assert runtime.evidence[0]["phash"]
     assert runtime.fraud_analysis["analysis_status"] == "completed"
     assert runtime.downloaded_paths == [
@@ -255,7 +255,7 @@ def test_missing_model_weights_still_runs_fraud_hashing(runtime, monkeypatch):
 
     assert result["analysis_status"] == "failed"
     assert result["error_message"] == "No damage detection model weights are available."
-    assert runtime.claim["status"] == "manual_review"
+    assert runtime.claim["status"] == "flagged"
     assert runtime.evidence[0]["phash"]
     assert runtime.fraud_analysis["analysis_status"] == "completed"
 

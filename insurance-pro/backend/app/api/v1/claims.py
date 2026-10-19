@@ -331,7 +331,7 @@ async def process_customer_settlement_decision(
         try:
             updated_claims = await db.update(
                 "claims",
-                filters={"id": f"eq.{claim_id}"},
+                filters={"id": f"eq.{claim_id}", "status": f"eq.{current_status}"},
                 data={
                     "status": new_status,
                     "updated_at": timestamp
@@ -389,7 +389,7 @@ async def process_customer_settlement_decision(
         try:
             updated_claims = await db.update(
                 "claims",
-                filters={"id": f"eq.{claim_id}"},
+                filters={"id": f"eq.{claim_id}", "status": f"eq.{current_status}"},
                 data={
                     "status": new_status,
                     "risk_level": "High Risk",

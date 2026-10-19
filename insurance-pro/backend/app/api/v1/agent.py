@@ -172,18 +172,30 @@ async def process_agent_claim_action(
             "status": new_status,
             "assigned_agent_id": agent_id,
             "approved_amount": calculated_offer,
-            "settlement_offer_amount": calculated_offer,
             "agent_custom_notes": payload.reason or payload.custom_notes or "",
             "updated_at": timestamp
         }
 
         try:
-            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+            updated_claims = await db.update(
+                "claims",
+                filters={"id": f"eq.{real_claim_id}", "status": f"eq.{current_status}"},
+                data=update_data,
+            )
         except Exception as e:
             request_id = log_route_exception(logger, request, "agent.claim.approve_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"message": "Failed to update claim to approved status", "error": f"Request ID: {request_id}"}
+            )
+
+        if not isinstance(updated_claims, list) or not updated_claims:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Claim was modified by another operation. Refresh and try again.",
+                    "claim_id": real_claim_id,
+                },
             )
 
         settlement_token = create_claim_action_token(
@@ -210,7 +222,6 @@ async def process_agent_claim_action(
             "previous_status": current_status,
             "new_status": new_status,
             "estimated_bounds": {"min": min_cost, "max": max_cost},
-            "settlement_token": settlement_token,
             "message": "Claim successfully approved. Settlement confirmation instructions dispatched to claimant."
         }
 
@@ -234,12 +245,25 @@ async def process_agent_claim_action(
         }
 
         try:
-            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+            updated_claims = await db.update(
+                "claims",
+                filters={"id": f"eq.{real_claim_id}", "status": f"eq.{current_status}"},
+                data=update_data,
+            )
         except Exception as e:
             request_id = log_route_exception(logger, request, "agent.claim.reject_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"message": "Failed to update claim rejection in database", "error": f"Request ID: {request_id}"}
+            )
+
+        if not isinstance(updated_claims, list) or not updated_claims:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Claim was modified by another operation. Refresh and try again.",
+                    "claim_id": real_claim_id,
+                },
             )
 
         background_tasks.add_task(
@@ -294,12 +318,25 @@ async def process_agent_claim_action(
         }
 
         try:
-            await db.update("claims", filters={"id": f"eq.{real_claim_id}"}, data=update_data)
+            updated_claims = await db.update(
+                "claims",
+                filters={"id": f"eq.{real_claim_id}", "status": f"eq.{current_status}"},
+                data=update_data,
+            )
         except Exception as e:
             request_id = log_route_exception(logger, request, "agent.claim.notes_update_failed", e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"message": "Failed to update claim notes in database", "error": f"Request ID: {request_id}"}
+            )
+
+        if not isinstance(updated_claims, list) or not updated_claims:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Claim was modified by another operation. Refresh and try again.",
+                    "claim_id": real_claim_id,
+                },
             )
 
         upload_magic_token = create_claim_action_token(

@@ -337,8 +337,8 @@ def login(client: httpx.Client, email: str, password: str, otp_code: Optional[st
         print(f"[FAIL] {role} OTP verification response is not a valid object")
         return None
 
-    if v_data.get("is_verified") is False:
-        print(f"[FAIL] {role} OTP verification explicitly failed (is_verified=False)")
+    if v_data.get("is_verified") is not True:
+        print(f"[FAIL] {role} OTP verification did not confirm (is_verified={v_data.get('is_verified')!r})")
         return None
 
     token = v_data.get("access_token")
