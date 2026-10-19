@@ -7,8 +7,9 @@ This directory contains short, atomic handoff notes so a fresh ChatGPT/Antigravi
 ## Read in this order
 
 1. [Current handoff](CURRENT_HANDOFF.md) — the immediate state and blockers.
-2. [Branch and merge plan](BRANCH_AND_MERGE_PLAN.md) — safe sequence for reconciling files, validating, merging to main, and aligning the local base.
-3. [GCP deployment state](GCP_DEPLOYMENT_STATE.md) — resources already created, image already pushed, and remaining deployment work.
+2. [Next-session prompt](NEXT_SESSION_PROMPT.md) — copy-paste instructions for resuming work.
+3. [Branch and merge plan](BRANCH_AND_MERGE_PLAN.md) — safe sequence for reconciling files, validating, merging to main, and aligning the local base.
+4. [GCP deployment state](GCP_DEPLOYMENT_STATE.md) — resources already created, image already pushed, and remaining deployment work.
 
 ## Non-negotiable guardrails
 
