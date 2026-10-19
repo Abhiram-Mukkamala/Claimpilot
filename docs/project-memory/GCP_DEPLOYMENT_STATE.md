@@ -1,66 +1,89 @@
 # ClaimPilot GCP Deployment State
 
-Last updated: 2026-10-19 (Asia/Kolkata)
+Last updated: 2026-10-19 (Asia/Kolkata), after PR #5 merged.
 
 ## Project and region
 
 - GCP project ID: claimpilot-512009.
-- Active gcloud project and CLI billing/quota_project were set to claimpilot-512009.
-- ADC quota project was successfully set to claimpilot-512009.
+- Active gcloud project, CLI billing/quota_project and ADC quota project were set to claimpilot-512009.
 - Billing command returned billingEnabled: true.
-- A screenshot showed four Google Developer Program monthly credit entries at 100%, ₹955.46 each (₹3,821.84 total displayed across those entries); the conversation did not conclusively verify that all credits apply to this project. Check Billing credits page/account before cost-bearing deployment.
+- Screenshot showed four Google Developer Program monthly credit entries at 100%, ₹955.46 each (₹3,821.84 across those displayed entries); it was not conclusively verified that all credits are applicable to this project's billing account. Check credits/account before cost-bearing deployment.
 - Target region: asia-south1 (Mumbai), provisional for India demo users.
-- Correct Supabase project: zegygoxpmnxpdhutdpqf, URL https://zegygoxpmnxpdhutdpqf.supabase.co (Supabase region is Sydney). Expect cross-region backend-to-DB latency; measure it.
+- Correct Supabase project: zegygoxpmnxpdhutdpqf, URL https://zegygoxpmnxpdhutdpqf.supabase.co (Supabase region Sydney). Measure cross-region latency.
 
 ## APIs enabled
 
-The user ran gcloud services enable successfully for:
+User reported successful enablement for:
 - run.googleapis.com
 - cloudbuild.googleapis.com
 - artifactregistry.googleapis.com
 - secretmanager.googleapis.com
+- cloudresourcemanager.googleapis.com
+- cloudbilling.googleapis.com
 
-Cloud Resource Manager and Cloud Billing APIs were also enabled while aligning project/ADC/billing commands.
+## Artifact Registry and old image
 
-## Artifact Registry
+- Repository name intended: claimpilot in asia-south1.
+- gcloud artifacts repositories create returned ALREADY_EXISTS.
+- A previous artifacts repositories list returned no rows despite ALREADY_EXISTS; verify with gcloud artifacts repositories describe claimpilot --location=asia-south1 --project=claimpilot-512009.
+- Docker auth configured using gcloud auth configure-docker asia-south1-docker.pkg.dev.
+- Old image pushed: asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1.
+- Digest: sha256:fdad2b67315e9e2f3ac373d3f95665d0ed715dad346de1efa215de15c9bea1d4.
+- **Do not deploy this old v1 image as final.** It was built before PR #5's final merged Twilio Verify implementation.
+- Create a new versioned tag from exact merged main SHA after local alignment; e.g. a commit-specific tag. Verify pushed digest before Cloud Run deploy.
 
-- Docker repository name: claimpilot.
-- Location: asia-south1.
-- A create command returned ALREADY_EXISTS, so the repository already existed.
-- The prior list command returned an empty table, so verify with gcloud artifacts repositories describe claimpilot --location=asia-south1 --project=claimpilot-512009 before relying on it.
-- Docker auth configured with gcloud auth configure-docker asia-south1-docker.pkg.dev.
-- Image pushed to: asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1.
-- Push result digest: sha256:fdad2b67315e9e2f3ac373d3f95665d0ed715dad346de1efa215de15c9bea1d4.
-- This image was built before reconciliation of the latest uploaded backend source. Current GitHub branch code at time of inspection uses the older SMS Messages API and local OTP validation. Do not deploy this image as the final release if the latest backend changes alter auth/OTP or other runtime behavior.
+## Runtime service account
 
-## Runtime service account and secrets
+Created:
+claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com
 
-- Runtime service account created: claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com.
-- Secret containers created and roles/secretmanager.secretAccessor granted on each to that service account:
-  - claimpilot-supabase-anon-key
-  - claimpilot-supabase-service-role-key
-  - claimpilot-jwt-secret
-  - claimpilot-sendgrid-api-key
-- Actual secret versions/values were not confirmed populated in conversation. Verify each secret's versions before deploying.
-- SendGrid API key and verified sender availability were pending user check.
-- Twilio secrets for Account SID, Auth Token and Verify Service SID were discussed but no successful creation/population was reported. The phone-number secret was deleted by the user; do not assume it exists. Whether it is needed depends on confirmed implementation (regular Messages API needs a sender number; Twilio Verify does not use the application's From field).
-- Never print or ask the user to paste secret values. Use Secret Manager's add-version UI or a secure local input method, and don't commit values.
+## Secret Manager
 
-## No live deployment yet
+Secret containers created and roles/secretmanager.secretAccessor granted for runtime account on:
+- claimpilot-supabase-anon-key
+- claimpilot-supabase-service-role-key
+- claimpilot-jwt-secret
+- claimpilot-sendgrid-api-key
 
-- No Cloud Run service was created/deployed in the conversation.
-- No frontend deployment/custom domain/CORS origin has been confirmed.
-- Production email delivery has not been proven. /health/ready in the local container showed email OTP configuration present; that is a config check, not a real inbox-delivery test.
-- Proposed Cloud Run starting configuration from the runbook: service claimpilot-api, 1 vCPU, 4 GiB RAM, request-based billing, min instances 0, max instances 2, concurrency 1, 300-second timeout, port 8080. Treat this as provisional until request latency/memory and full-flow behavior are measured.
-- Runbook path on deploy/cloud-run: docs/CLOUD_RUN_DEPLOYMENT.md. It incorrectly points to legacy Supabase URL https://tiwdktgeqifhumcrwniv.supabase.co; correct to the current verified project URL before using the runbook.
+Actual secret versions/values were not confirmed populated. Check version listings without displaying values.
 
-## Safe next GCP actions
+Twilio Verify secret names planned but their successful creation/population was not reported:
+- claimpilot-twilio-account-sid
+- claimpilot-twilio-auth-token
+- claimpilot-twilio-verify-service-sid
 
-1. Stop before Cloud Run deploy until source reconciliation and PR merge plan are complete.
-2. Verify registry using gcloud artifacts repositories describe.
-3. Check credit applicability/remaining balance in the Cloud Billing console.
-4. Verify required secret versions exist without displaying values.
-5. After code is merged and reviewed, build a new versioned image tag from the exact merged commit, push it, then configure Cloud Run using Secret Manager bindings.
-6. Set ENVIRONMENT=production; do not set OTP_DEV_FIXED_CODE in production.
-7. Set exact actual HTTPS frontend origin in FRONTEND_URL and ALLOWED_ORIGINS.
-8. Verify deployed /health, /health/ready, actual email and SMS OTP delivery/verification, private evidence handling, AI persistence, agent decision and customer status after refresh.
+Use those three to map to TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_VERIFY_SERVICE_SID in Cloud Run. For Verify mode, do not create/configure claimpilot-twilio-phone-number. The code still supports legacy regular Messages API fallback, but the intended deployment path is Twilio Verify when the three Verify settings are present.
+
+SendGrid API key and verified sender address were pending user check. SendGrid sender email is config (SENDGRID_FROM_EMAIL) and needs to be mapped as a non-secret environment variable; API key should come from Secret Manager.
+
+Never print or paste secret values. Do not use local .env files as an image layer or commit any credential.
+
+## No live deployment confirmed
+
+No Cloud Run service was created/deployed in the conversation. No frontend deployment, custom domain or actual HTTPS CORS origin is confirmed.
+
+Local pre-merge Docker tests passed:
+- best.pt packaged and loaded (22,501,482 bytes), YOLO detect classes dent/scratch/crack/glass shatter/lamp broken/tire flat.
+- synthetic-image inference ran.
+- after fixing local .env quote issues, /health and /health/ready returned HTTP 200.
+- Supabase REST query from the container returned HTTP 200 and one row.
+These results are from the pre-merge local image, not the current merged Verify implementation, not Cloud Run and not full E2E.
+
+## Runbook defect and proposed sizing
+
+- Runbook: docs/CLOUD_RUN_DEPLOYMENT.md on branch deploy/cloud-run.
+- It references wrong legacy Supabase URL https://tiwdktgeqifhumcrwniv.supabase.co. Correct to https://zegygoxpmnxpdhutdpqf.supabase.co before using.
+- Proposed starting service claimpilot-api: 1 vCPU, 4 GiB RAM, request-based billing, min instances 0, max instances 2, concurrency 1, timeout 300s, port 8080. Provisional only; verify latency and memory under actual inference.
+- Set ENVIRONMENT=production; do not set OTP_DEV_FIXED_CODE in production.
+- Set FRONTEND_URL and ALLOWED_ORIGINS to the actual deployed HTTPS frontend origin (no wildcard).
+
+## GCP next actions, in order
+
+1. Align local base/worktree to merged canonical main and verify commit SHA.
+2. Correct the runbook Supabase URL.
+3. Verify repository exists and check remaining/applicable credits.
+4. Confirm required secret versions exist (only status/name metadata; do not print values).
+5. Verify exact Cloud Run image build context and build from merged source, then push a fresh versioned tag.
+6. Map Secret Manager secrets and environment variables to Cloud Run runtime account.
+7. Deploy only after correct frontend origin, SendGrid API/sender and Twilio Verify service values are in place.
+8. Check live /health and /health/ready, send and verify a real email OTP and Twilio Verify SMS OTP, then exercise customer login, claim creation, photo upload, persisted AI assessment, agent decision and customer status after refresh.
