@@ -10,7 +10,7 @@
 - **Cloud Run service:** `claimpilot-api`
 - **Supabase project:** `zegygoxpmnxpdhutdpqf`
 - **Supabase URL:** `https://zegygoxpmnxpdhutdpqf.supabase.co`
-- **Supabase region:** reported as Sydney (`ap-southeast-2)); it is **not** colocated with Cloud Run in Mumbai. Verify latency during the E2E test.
+- **Supabase region:** reported as Sydney (`ap-southeast-2`); it is **not** colocated with Cloud Run in Mumbai. Verify latency during the E2E test.
 - **Evidence bucket:** `claim-evidence`, intended to remain private.
 
 The API runs in Cloud Run; Supabase remains the auth/database/storage provider. No live Cloud Run deployment was confirmed in the previous handoff. Treat all resources and credentials as needing a current check rather than relying on old screenshots or these notes.
@@ -46,7 +46,9 @@ Before any billing-impacting activity, confirm billing is enabled and that any d
 
 ## 3. Secret Manager audit (metadata only)
 
-Required secret-to-environment mappings:
+### Required secrets for the email-OTP demo
+
+The customer/agent demo can use email OTP, so these four secrets are required for the first deployment:
 
 | Cloud Run variable | Secret Manager name | Notes |
 |---|---|---|
@@ -54,26 +56,44 @@ Required secret-to-environment mappings:
 | `SUPABASE_SERVICE_ROLE_KEY` | `claimpilot-supabase-service-role-key` | Backend-only privileged key; never expose to browser |
 | `JWT_SECRET` | `claimpilot-jwt-secret` | Independent random signing secret, at least 32 characters |
 | `SENDGRID_API_KEY` | `claimpilot-sendgrid-api-key` | Email OTP provider |
+
+### Optional secrets if SMS login is enabled
+
+Do **not** block the email-only demo on Twilio configuration. Phone/SMS login requires all three of these secrets:
+
+| Cloud Run variable | Secret Manager name | Notes |
+|---|---|---|
 | `TWILIO_ACCOUNT_SID` | `claimpilot-twilio-account-sid` | Twilio account identifier |
 | `TWILIO_AUTH_TOKEN` | `claimpilot-twilio-auth-token` | Twilio API credential |
 | `TWILIO_VERIFY_SERVICE_SID` | `claimpilot-twilio-verify-service-sid` | Twilio Verify Service SID, usually starts with `VA` |
 
-**Actual versions are not certified by this document.** Earlier handoff notes said the first four secret containers and runtime-account access were created, but did not confirm their current enabled versions. Creation/population of the three Twilio Verify secret versions was also not confirmed. The status labels in earlier drafts were not backed by a current audit; do not rely on them.
+### Latest read-only GCP audit (20 October 2026)
 
-First list secret names; then check state/version metadata without displaying payloads:
+The user-provided audit reports:
+- Project `claimpilot-512009`, region `asia-south1`, Artifact Registry repo `claimpilot`, and runtime service account exist.
+- **No Cloud Run service exists yet.**
+- The four core secrets exist with enabled versions: anon key v1, service-role key v1, JWT v1 and v2, SendGrid v1.
+- Twilio account SID v2 and auth token v1 are enabled; Twilio account SID v1 is destroyed.
+- `claimpilot-twilio-verify-service-sid` does not exist.
+- The runtime service account has `roles/secretmanager.secretAccessor` on each of the six existing secrets.
+- No secret payloads were read during this audit.
+
+This is a dated snapshot, not a permanent guarantee; re-run metadata checks before deployment.
+
+First list secret names; then check version/IAM metadata without displaying payloads:
 
 ```powershell
 gcloud secrets list --project=claimpilot-512009 --format="table(name,createTime)"
 ```
 
-For each of the seven names above, run:
+For each of the four required names above, run:
 
 ```powershell
 gcloud secrets versions list SECRET_NAME --project=claimpilot-512009 --format="table(name,state,createTime,expireTime)"
 gcloud secrets get-iam-policy SECRET_NAME --project=claimpilot-512009
 ```
 
-Replace `SECRET_NAME` with one name at a time. Never use `gcloud secrets versions access`, never print secret payloads, and never paste secret values into chat, source control, logs, or screenshots.
+If enabling SMS, run the same commands for the three optional Twilio names after they have been provisioned. Never use `gcloud secrets versions access`, never print secret payloads, and never paste secret values into chat, source control, logs, or screenshots.
 
 If a secret or enabled version is missing, pause and create/populate it through the approved GCP Console or a locally controlled secure process. Do not insert placeholder values. Generate a fresh JWT secret if needed, independently of the Supabase keys.
 
@@ -91,11 +111,11 @@ Verify the runtime account exists:
 
 Do not create duplicate resources or change IAM until you have inspected current state.
 
-### Twilio Verify
+### Twilio Verify (optional for this email-first demo)
 
 The intended SMS flow uses the Verify API with all three values: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`. The application sends a verification request and accepts an SMS code only when Twilio's check indicates approved/valid. `TWILIO_PHONE_NUMBER` is not required for this flow.
 
-The code retains a legacy Programmable SMS fallback if Verify is not configured. For this deployment, confirm all three Verify values are present so production does not unintentionally fall back. The previous handoff reported that the `claimpilot-twilio-phone-number` secret was deleted; leave it absent unless the owner deliberately chooses the legacy fallback.
+The code retains a legacy Programmable SMS fallback if Verify is not configured. For the email-only demo, omit Twilio secrets and use email addresses for authentication. If phone/SMS login is required, create/populate the missing Verify Service SID secret, verify it has an enabled version and the runtime service account has secret access, then add all three Twilio mappings to Cloud Run. The previous handoff reported that the `claimpilot-twilio-phone-number` secret was deleted; leave it absent unless the owner deliberately chooses the legacy fallback.
 
 ### SendGrid
 
@@ -134,7 +154,7 @@ The prior local Docker checks verified loading `best.pt` and running synthetic-i
 
 Do not run this section until:
 - The source/image is rebuilt from the intended canonical commit.
-- All seven required secret names have usable enabled versions.
+- The four required email-demo secrets have usable enabled versions. Verify current metadata and IAM again immediately before deployment.
 - Runtime IAM bindings allow the service account to access the required secrets.
 - A verified SendGrid sender address is known.
 - The actual deployed frontend HTTPS origin is known and approved.
@@ -169,10 +189,21 @@ gcloud run deploy claimpilot-api `
   --min-instances=0 `
   --max-instances=2 `
   "--set-env-vars=^~^ENVIRONMENT=production~SUPABASE_URL=https://zegygoxpmnxpdhutdpqf.supabase.co~SUPABASE_STORAGE_BUCKET=claim-evidence~SENDGRID_FROM_EMAIL=$SendGridFrom~FRONTEND_URL=$FrontendOrigin~ALLOWED_ORIGINS=$FrontendOrigin~AI_PROCESSING_SYNC=true" `
-  "--set-secrets=SUPABASE_ANON_KEY=claimpilot-supabase-anon-key:latest,SUPABASE_SERVICE_ROLE_KEY=claimpilot-supabase-service-role-key:latest,JWT_SECRET=claimpilot-jwt-secret:latest,SENDGRID_API_KEY=claimpilot-sendgrid-api-key:latest,TWILIO_ACCOUNT_SID=claimpilot-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=claimpilot-twilio-auth-token:latest,TWILIO_VERIFY_SERVICE_SID=claimpilot-twilio-verify-service-sid:latest"
+  "--set-secrets=SUPABASE_ANON_KEY=claimpilot-supabase-anon-key:latest,SUPABASE_SERVICE_ROLE_KEY=claimpilot-supabase-service-role-key:latest,JWT_SECRET=claimpilot-jwt-secret:latest,SENDGRID_API_KEY=claimpilot-sendgrid-api-key:latest"
 ```
 
 `--allow-unauthenticated` makes the API network-reachable by the browser; it is not user authorization. Each protected endpoint must continue to enforce application authentication, roles, and ownership. CORS is not a substitute for auth.
+
+If you later choose to demonstrate SMS login, first provision the optional Verify Service SID secret and verify all three Twilio secrets plus IAM. Then attach them to the existing service:
+
+```powershell
+gcloud run services update claimpilot-api `
+  --project=claimpilot-512009 `
+  --region=asia-south1 `
+  --update-secrets=TWILIO_ACCOUNT_SID=claimpilot-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=claimpilot-twilio-auth-token:latest,TWILIO_VERIFY_SERVICE_SID=claimpilot-twilio-verify-service-sid:latest
+```
+
+Do not run that optional command for the email-only demo.
 
 If a command fails, stop and inspect the error. Do not work around auth/authorization failures by making Supabase storage public, loosening RLS, exposing the service-role key, or enabling OTP development codes.
 
@@ -196,16 +227,16 @@ Current `/health` is a liveness check and should return HTTP 200 with `{"status"
 
 Then complete the live test with team-owned accounts:
 
-1. Send and verify a real email OTP through SendGrid.
-2. Send an SMS OTP and verify it through Twilio Verify. Rejected and expired codes must fail.
-3. Sign in as a customer and submit a claim with required real demo details.
-4. Upload evidence and register the canonical storage path returned by the upload flow.
-5. Confirm inference runs with the deployed model and a real result or explicit flagged/manual-review failure is persisted. Do not treat synthetic-image loading as accuracy evidence.
-6. Confirm fraud-analysis result persistence where applicable; don't assert advanced segmentation/depth outputs unless the deployed API actually returns them.
-7. Sign in as an authorized agent, inspect the claim, and submit the permitted decision.
-8. Refresh the customer view and verify status/decision persistence and correct actor-level access.
-9. Test private evidence access, unauthorized requests, and a CORS preflight from the exact approved frontend origin.
-10. Review Cloud Logging for sanitized errors; inspect latency, memory, cold starts, and costs. Never capture OTPs, authorization headers, signed URLs, secret payloads, or customer PII in shared logs.
+1. Send and verify a real email OTP through SendGrid; reject invalid and expired codes.
+2. Sign in as a customer and submit a claim with required real demo details.
+3. Upload evidence and register the canonical storage path returned by the upload flow.
+4. Confirm inference runs with the deployed model and a real result or explicit flagged/manual-review failure is persisted. Do not treat synthetic-image loading as accuracy evidence.
+5. Confirm fraud-analysis result persistence where applicable; don't assert advanced segmentation/depth outputs unless the deployed API actually returns them.
+6. Sign in as an authorized agent, inspect the claim, and submit the permitted decision.
+7. Refresh the customer view and verify status/decision persistence and correct actor-level access.
+8. Test private evidence access, unauthorized requests, and a CORS preflight from the exact approved frontend origin.
+9. Review Cloud Logging for sanitized errors; inspect latency, memory, cold starts, and costs. Never capture OTPs, authorization headers, signed URLs, secret payloads, or customer PII in shared logs.
+10. Only if Twilio Verify has been configured and the SMS trial policy is understood, separately test SMS send/check, rejected codes, and expired codes.
 
 Only mark full E2E as passed after the entire journey succeeds against the deployed service, not based on unit tests or health checks alone.
 
