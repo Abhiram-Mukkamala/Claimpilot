@@ -4,7 +4,7 @@ You are taking over as ClaimPilot integration/release owner. Read README.md, CUR
 
 Canonical repository: Abhiram-Mukkamala/Claimpilot.
 PR #5: https://github.com/Abhiram-Mukkamala/Claimpilot/pull/5 — now merged.
-Merged main SHA at last verified check: 03c10f5d97bfdbf7560b95ee6e6e7cfb44e8165 (re-verify before acting).
+Merged main SHA at last verified check: 03c10f5d97bfdbf7560b95ee6be6e7cfb44e8165 (re-verify before acting).
 Old pushed GCP image: asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1, digest sha256:fdad2b67315e9e2f3ac373d3f95665d0ed715dad346de1efa215de15c9bea1d4. It predates the final merge's Twilio Verify integration; do not deploy it as final.
 GCP project: claimpilot-512009, region asia-south1.
 
