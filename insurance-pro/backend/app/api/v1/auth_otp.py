@@ -45,12 +45,117 @@ def _otp_delivery_configured(channel: OtpChannel) -> bool:
         return True
     if channel == OtpChannel.email:
         return bool(settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL)
-    twilio_ready = bool(
-        settings.TWILIO_ACCOUNT_SID
-        and settings.TWILIO_AUTH_TOKEN
-        and settings.TWILIO_PHONE_NUMBER
+    if channel == OtpChannel.sms:
+        verify_ready = bool(
+            settings.TWILIO_ACCOUNT_SID
+            and settings.TWILIO_AUTH_TOKEN
+            and settings.TWILIO_VERIFY_SERVICE_SID
+        )
+        twilio_ready = bool(
+            settings.TWILIO_ACCOUNT_SID
+            and settings.TWILIO_AUTH_TOKEN
+            and settings.TWILIO_PHONE_NUMBER
+        )
+        return verify_ready or twilio_ready or bool(settings.FAST2SMS_API_KEY)
+    return False
+
+
+def _is_twilio_verify_active(channel: OtpChannel) -> bool:
+    """Return whether Twilio Verify is configured for SMS delivery and checking."""
+    return (
+        channel == OtpChannel.sms
+        and bool(
+            settings.TWILIO_ACCOUNT_SID
+            and settings.TWILIO_AUTH_TOKEN
+            and settings.TWILIO_VERIFY_SERVICE_SID
+        )
     )
-    return twilio_ready or bool(settings.FAST2SMS_API_KEY)
+
+
+def _format_e164_phone(phone: str) -> str:
+    cleaned = phone.strip()
+    if cleaned.startswith("+"):
+        return cleaned
+    digits = "".join([c for c in cleaned if c.isdigit()])
+    if len(digits) == 10:
+        return f"+91{digits}"
+    elif len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    elif digits:
+        return f"+{digits}"
+    return cleaned
+
+
+async def send_otp_via_twilio_verify(phone_number: str) -> dict:
+    """Deliver verification code via Twilio Verify Service."""
+    url = f"https://verify.twilio.com/v2/Services/{settings.TWILIO_VERIFY_SERVICE_SID}/Verifications"
+    auth = (settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+    to_phone = _format_e164_phone(phone_number)
+    data = {
+        "To": to_phone,
+        "Channel": "sms"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, auth=auth, data=data)
+            if resp.status_code == 400:
+                logger.error("event=auth.otp.twilio_verify outcome=invalid_phone status=%s resp=%s", resp.status_code, resp.text)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid phone number format for SMS delivery.",
+                )
+            if resp.status_code >= 400:
+                logger.error("event=auth.otp.twilio_verify outcome=provider_error status=%s resp=%s", resp.status_code, resp.text)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="SMS delivery provider error. Please try again later.",
+                )
+            return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("event=auth.otp.twilio_verify outcome=connection_error error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to connect to SMS delivery provider.",
+        ) from exc
+
+
+async def check_otp_via_twilio_verify(phone_number: str, code: str) -> dict:
+    """Verify code with Twilio Verify Service."""
+    url = f"https://verify.twilio.com/v2/Services/{settings.TWILIO_VERIFY_SERVICE_SID}/VerificationCheck"
+    auth = (settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+    to_phone = _format_e164_phone(phone_number)
+    data = {
+        "To": to_phone,
+        "Code": code
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, auth=auth, data=data)
+            if resp.status_code == 404:
+                return {"status": "expired", "valid": False}
+            if resp.status_code >= 500 or resp.status_code == 429:
+                logger.error("event=auth.otp.twilio_verify outcome=check_provider_error status=%s", resp.status_code)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="SMS verification provider unavailable. Please try again.",
+                )
+            if resp.status_code >= 400:
+                body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                code_val = body.get("code")
+                if code_val in {20404, 60202}:
+                    return {"status": "expired", "valid": False}
+                return {"status": "pending", "valid": False}
+            return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("event=auth.otp.twilio_verify outcome=check_connection_error error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to connect to SMS verification provider.",
+        ) from exc
 
 
 def _otp_tag(
@@ -108,16 +213,19 @@ async def issue_otp(
     clean_identifier = payload.identifier.strip()
     if payload.channel == OtpChannel.email:
         clean_identifier = clean_identifier.lower()
+        existing_user = await db.select("profiles", params={"email": f"eq.{clean_identifier}"}, single=True)
+    else:
+        clean_phone = "".join([c for c in clean_identifier if c.isdigit()])[-10:]
+        existing_user = await db.select("profiles", params={"phone_number": f"ilike.*{clean_phone}*"}, single=True)
 
-    user_filter = "email" if payload.channel == OtpChannel.email else "phone_number"
-    existing_user = await db.select("profiles", params={user_filter: f"eq.{clean_identifier}"}, single=True)
     user_id = str(existing_user.get("id")) if isinstance(existing_user, dict) and existing_user.get("id") else ""
 
     if purpose == "signup":
-        if existing_user:
+        if existing_user and user_id:
+            channel_label = "email address" if payload.channel == OtpChannel.email else "phone number"
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Unable to start verification for this identifier.",
+                detail=f"An account with this {channel_label} already exists.",
             )
     elif purpose == "login":
         if not user_id or user_id != str(authenticated_user_id):
@@ -153,15 +261,23 @@ async def issue_otp(
                 detail="Too many verification codes requested. Please try again later.",
             )
 
+        use_twilio_verify = (
+            not fixed_code_mode
+            and payload.channel == OtpChannel.sms
+            and _is_twilio_verify_active(payload.channel)
+        )
+
         # Fixed codes are import-time gated to development/test only.
         otp_code = _dev_fixed_code if _dev_fixed_code is not None else f"{secrets.randbelow(1_000_000):06d}"
         expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
         challenge_id = str(uuid.uuid4())
         created_at = _canonical_timestamp(now.isoformat())
-        otp_record = {
-            "id": challenge_id,
-            "identifier": clean_identifier,
-            "otp_code": _otp_tag(
+
+        if use_twilio_verify:
+            await send_otp_via_twilio_verify(clean_identifier)
+            stored_otp = "VERIFY"
+        else:
+            stored_otp = _otp_tag(
                 otp_code,
                 identifier=clean_identifier,
                 channel=payload.channel.value,
@@ -169,7 +285,12 @@ async def issue_otp(
                 user_id=user_id,
                 challenge_id=challenge_id,
                 created_at=created_at,
-            ),
+            )
+
+        otp_record = {
+            "id": challenge_id,
+            "identifier": clean_identifier,
+            "otp_code": stored_otp,
             "channel": payload.channel.value,
             "purpose": purpose,
             "user_id": user_id or None,
@@ -192,6 +313,8 @@ async def issue_otp(
     if fixed_code_mode:
         # Do not enqueue a mock transport for a configured local/test fixed code.
         logger.info("event=auth.otp.delivery outcome=fixed_code_mode user_id=%s", user_id or "unknown")
+    elif use_twilio_verify:
+        logger.info("event=auth.otp.delivery outcome=twilio_verify_dispatched user_id=%s", user_id or "unknown")
     elif payload.channel == OtpChannel.email:
         background_tasks.add_task(send_otp_via_email, clean_identifier, otp_code)
     else:
@@ -293,6 +416,7 @@ async def send_otp(payload: OtpSendRequest, background_tasks: BackgroundTasks):
 
 @router.post("/verify", response_model=OtpVerifyResponse, status_code=status.HTTP_200_OK)
 async def verify_otp(payload: OtpVerifyRequest):
+    fixed_code_mode = _environment in {"development", "test"} and _dev_fixed_code is not None
     identifier = payload.identifier.strip()
     if "@" in identifier:
         identifier = identifier.lower()
@@ -336,8 +460,12 @@ async def verify_otp(payload: OtpVerifyRequest):
 
     # A login challenge exists only when the password-authenticated login path
     # inserted it. Public OTP sends are signup-only and reject existing users.
+    clean_phone = "".join([c for c in identifier if c.isdigit()])[-10:] if channel == "sms" else ""
     try:
-        profile = await db.select("profiles", params={user_filter: f"eq.{identifier}"}, single=True)
+        if channel == "email":
+            profile = await db.select("profiles", params={"email": f"eq.{identifier}"}, single=True)
+        else:
+            profile = await db.select("profiles", params={"phone_number": f"ilike.*{clean_phone}*"}, single=True)
     except Exception as exc:
         logger.error("event=auth.otp.verify outcome=profile_lookup_failed error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
@@ -394,17 +522,6 @@ async def verify_otp(payload: OtpVerifyRequest):
             )
         )
 
-    expected_tag = _otp_tag(
-        user_otp,
-        identifier=identifier,
-        channel=channel,
-        purpose=purpose,
-        user_id=user_id,
-        challenge_id=str(otp_id),
-        created_at=_canonical_timestamp(created_at),
-    )
-    stored_tag = str(active_otp.get("otp_code") or "").strip().zfill(6)
-
     # Signup needs the metadata required to provision a real Auth identity.
     meta = payload.metadata
     if purpose == "signup":
@@ -421,32 +538,84 @@ async def verify_otp(payload: OtpVerifyRequest):
                 detail="Registration details are required to complete verification.",
             )
 
-    if len(user_otp) != 6 or not user_otp.isdigit() or not hmac.compare_digest(stored_tag, expected_tag):
-        new_attempts = current_attempts + 1
-        try:
-            attempt_update = await db.update(
-                "otp_verifications",
-                filters={
-                    "id": f"eq.{otp_id}",
-                    "is_verified": "eq.false",
-                    "attempts": f"eq.{current_attempts}",
-                    "expires_at": f"gt.{now.isoformat()}",
-                },
-                data={"attempts": new_attempts},
-            )
-        except Exception as exc:
-            logger.error("event=auth.otp.verify outcome=attempt_update_failed error_type=%s", type(exc).__name__)
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
-        if not attempt_update:
+    use_twilio_verify = (
+        not fixed_code_mode
+        and channel == "sms"
+        and _is_twilio_verify_active(payload.channel)
+    )
+
+    if use_twilio_verify:
+        check_result = await check_otp_via_twilio_verify(identifier, user_otp)
+        check_status = check_result.get("status")
+        if check_status == "expired":
             raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Verification attempts are being processed. Please try again.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification code has expired. Please request a new OTP."
             )
-        remaining = max(settings.MAX_OTP_ATTEMPTS - new_attempts, 0)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid verification code. {remaining} attempt(s) remaining."
+        if check_status != "approved" or not check_result.get("valid", False):
+            new_attempts = current_attempts + 1
+            try:
+                attempt_update = await db.update(
+                    "otp_verifications",
+                    filters={
+                        "id": f"eq.{otp_id}",
+                        "is_verified": "eq.false",
+                        "attempts": f"eq.{current_attempts}",
+                        "expires_at": f"gt.{now.isoformat()}",
+                    },
+                    data={"attempts": new_attempts},
+                )
+            except Exception as exc:
+                logger.error("event=auth.otp.verify outcome=attempt_update_failed error_type=%s", type(exc).__name__)
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
+            if not attempt_update:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Verification attempts are being processed. Please try again.",
+                )
+            remaining = max(settings.MAX_OTP_ATTEMPTS - new_attempts, 0)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid verification code. {remaining} attempt(s) remaining."
+            )
+    else:
+        expected_tag = _otp_tag(
+            user_otp,
+            identifier=identifier,
+            channel=channel,
+            purpose=purpose,
+            user_id=user_id,
+            challenge_id=str(otp_id),
+            created_at=_canonical_timestamp(created_at),
         )
+        stored_tag = str(active_otp.get("otp_code") or "").strip().zfill(6)
+
+        if len(user_otp) != 6 or not user_otp.isdigit() or not hmac.compare_digest(stored_tag, expected_tag):
+            new_attempts = current_attempts + 1
+            try:
+                attempt_update = await db.update(
+                    "otp_verifications",
+                    filters={
+                        "id": f"eq.{otp_id}",
+                        "is_verified": "eq.false",
+                        "attempts": f"eq.{current_attempts}",
+                        "expires_at": f"gt.{now.isoformat()}",
+                    },
+                    data={"attempts": new_attempts},
+                )
+            except Exception as exc:
+                logger.error("event=auth.otp.verify outcome=attempt_update_failed error_type=%s", type(exc).__name__)
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify the code.") from exc
+            if not attempt_update:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Verification attempts are being processed. Please try again.",
+                )
+            remaining = max(settings.MAX_OTP_ATTEMPTS - new_attempts, 0)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid verification code. {remaining} attempt(s) remaining."
+            )
 
     # Consume the challenge with one conditional update that also enforces
     # server-side expiry and the attempt count observed above.
@@ -516,7 +685,11 @@ async def verify_otp(payload: OtpVerifyRequest):
             "is_phone_verified": True if channel == "sms" else False
         }
         try:
-            supabase_admin.table("profiles").insert(new_user).execute()
+            profile_table = supabase_admin.table("profiles")
+            if hasattr(profile_table, "upsert"):
+                profile_table.upsert(new_user).execute()
+            else:
+                profile_table.insert(new_user).execute()
             profile = new_user
         except Exception as profile_err:
             logger.error("event=auth.otp.verify outcome=profile_insert_failed user_id=%s error_type=%s", user_id, type(profile_err).__name__)
