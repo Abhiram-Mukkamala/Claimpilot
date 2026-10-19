@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-19 (Asia/Kolkata)
 
-This directory contains short, atomic handoff notes so a fresh ChatGPT/Antigravity session can resume ClaimPilot without repeating setup or making unsafe assumptions.
+This directory contains short, atomic handoff notes so a fresh ChatGPT/Antigravity session can resume ClaimPilot without repeating setup or making unsafe assumptions. These files are persisted on branch docs/project-memory-handoff-2026-10-19 and are not merged into main.
 
 ## Read in this order
 
