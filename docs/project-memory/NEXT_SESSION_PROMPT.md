@@ -1,29 +1,32 @@
 # Next-Session Prompt — ClaimPilot
 
-You are taking over as ClaimPilot release/integration lead. Treat the other files in this directory as the handoff record. Work conservatively and report evidence, not assumptions.
+You are taking over as ClaimPilot integration/release owner. Read README.md, CURRENT_HANDOFF.md, BRANCH_AND_MERGE_PLAN.md, and GCP_DEPLOYMENT_STATE.md first. Report evidence, not assumptions.
 
-Canonical GitHub repo: Abhiram-Mukkamala/Claimpilot.
-Main was most recently observed at SHA 03c10f5d97bfdbf7560b95ee6be6e7cfb44e8165 while this memory branch was created.
-Current candidate release branch: release/cloud-run-container-hardening.
-Existing draft PR: https://github.com/Abhiram-Mukkamala/Claimpilot/pull/5.
+Canonical repository: Abhiram-Mukkamala/Claimpilot.
+PR #5: https://github.com/Abhiram-Mukkamala/Claimpilot/pull/5 — now merged.
+Merged main SHA at last verified check: 03c10f5d97bfdbf7560b95ee6e6e7cfb44e8165 (re-verify before acting).
+Old pushed GCP image: asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1, digest sha256:fdad2b67315e9e2f3ac373d3f95665d0ed715dad346de1efa215de15c9bea1d4. It predates the final merge's Twilio Verify integration; do not deploy it as final.
 GCP project: claimpilot-512009, region asia-south1.
 
 ## Do first
 
-1. Check current main, open PRs, branch heads, status, and CI. The repository may have changed after this note was written; verify everything.
-2. Inspect the updated backend attachments already provided in the conversation if still accessible. Do not ask the user to re-upload everything before trying the existing attachments. If reading attachments fails, ask only for the latest app/api/v1/auth_otp.py content or a small relevant excerpt.
-3. Compare the actual latest uploaded files with both release/cloud-run-container-hardening and main. Do not bulk merge release/predeploy-integration; it was previously 15 commits ahead and 18 behind main.
-4. Verify whether latest source really integrates Twilio Verify. Existing GitHub branch code inspected earlier did not; it used the regular Twilio Messages API and local Supabase OTP verification.
-5. Reconcile source into the canonical release branch and run targeted OTP tests, full relevant backend/frontend tests, lint/build, and Docker model + API smoke tests. Keep PR #5 draft until this passes.
-6. Review and correct docs/CLOUD_RUN_DEPLOYMENT.md on deploy/cloud-run: it currently contains the wrong legacy Supabase URL (tiwdktgeqifhumcrwniv). Correct project is zegygoxpmnxpdhutdpqf.
-7. Merge only after reviewing the full PR diff and checks. Then align the original local checkout while preserving all uncommitted/untracked changes. No hard reset, force-push, or unrelated remote.
-8. Only after canonical main and local base are aligned, rebuild and push a new versioned GCP image from the exact merged source. Do not deploy the old v1 image blindly.
+1. Verify current main SHA, PR state, checks and branch heads.
+2. Inspect both local worktrees before changing anything:
+   - C:\Projects\claimbot AI\wt-release-canonical
+   - C:\Projects\claimbot AI\ClaimPilot-Final
+   Run git status --short --branch, git remote -v, git branch --show-current, and git log --oneline --decorate -12 in each.
+3. Align the original local base to merged canonical main, preserving all uncommitted changes and untracked files. Do not use git reset --hard, force-push, remove worktrees, bulk-overwrite files, or push to shreyasshah707/ClaimPilot. Verify remotes; abhiram should point to https://github.com/Abhiram-Mukkamala/Claimpilot.git.
+4. Main was inspected and contains TWILIO_VERIFY_SERVICE_SID configuration plus Twilio Verify /Verifications and /VerificationCheck API calls. It requires provider status approved and valid=true. tests/test_twilio_verify.py covers send/check outcomes. PR #5 reports 184 backend tests, including 9 Verify tests, 32 frontend tests, build pass, lint 0 errors/13 warnings, model load/inference, and diff check. These are PR-reported results, not necessarily freshly rerun in this session.
+5. Review source diff and relevant CI. Do not merge PR #5 again; it is already merged. The old release branch is one merge commit behind main.
+6. Correct docs/CLOUD_RUN_DEPLOYMENT.md on deploy/cloud-run: replace legacy Supabase URL https://tiwdktgeqifhumcrwniv.supabase.co with https://zegygoxpmnxpdhutdpqf.supabase.co.
+7. Verify Secret Manager versions and mappings without printing values. Twilio Verify secrets planned: claimpilot-twilio-account-sid, claimpilot-twilio-auth-token, claimpilot-twilio-verify-service-sid. Existing Supabase/JWT/SendGrid secret containers already exist, but actual versions were not confirmed. Do not create/configure claimpilot-twilio-phone-number for the chosen Verify flow.
+8. Once local source is aligned and environment/provider secrets are ready, build and push a new immutable/commit-specific image from the merged main SHA. Do not reuse old v1 blindly.
+9. Only then configure/deploy Cloud Run and test live health/readiness, real email OTP, Twilio Verify SMS send and check, plus the full customer-to-agent journey.
 
-## Safety constraints
+## Guardrails
 
-- Never push canonical release commits to shreyasshah707/ClaimPilot; its history is unrelated.
-- Never put secrets in chat/Git/docs or print them from commands.
+- Never expose credentials, OTP codes, service-role keys or .env content.
 - Do not run Supabase migrations or seed demo data as a deployment shortcut.
-- Do not claim deployment or full E2E validation until actually done.
-- Preserve the existing security fixes, concurrency guards, AI sync-mode work, Docker changes and model weights.
-- GCP resource inventory and local test evidence are in GCP_DEPLOYMENT_STATE.md.
+- Preserve auth/security fixes, concurrency controls, AI sync mode, Docker changes and best.pt.
+- No live Cloud Run deployment has been confirmed.
+- GCP resource inventory and local Docker evidence are documented in GCP_DEPLOYMENT_STATE.md.
