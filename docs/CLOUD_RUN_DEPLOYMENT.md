@@ -75,7 +75,15 @@ gcloud secrets get-iam-policy SECRET_NAME --project=claimpilot-512009
 
 Replace `SECRET_NAME` with one name at a time. Never use `gcloud secrets versions access`, never print secret payloads, and never paste secret values into chat, source control, logs, or screenshots.
 
-If a secret or enabled version is missing, pause and create/populate it through the approved GCP Console or a locally controlled secure process. Do not insert placeholder values. Generate a fresh JWT secret if needed, independently of the Supabase keys. After inspecting IAM policies, grant `roles/secretmanager.secretAccessor` only to the Cloud Run runtime service account and only on the secrets it needs.
+If a secret or enabled version is missing, pause and create/populate it through the approved GCP Console or a locally controlled secure process. Do not insert placeholder values. Generate a fresh JWT secret if needed, independently of the Supabase keys.
+
+After checking the current policy for each secret, add access only when the runtime service account is not already granted access:
+
+```powershell
+gcloud secrets add-iam-policy-binding SECRET_NAME --project=claimpilot-512009 --member="serviceAccount:claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
+```
+
+Run this for one secret name at a time and only for secrets the service needs. Avoid broad project-level grants when per-secret bindings suffice.
 
 Verify the runtime account exists:
 
@@ -158,8 +166,8 @@ gcloud run deploy claimpilot-api `
   --memory=4Gi `
   --concurrency=1 `
   --timeout=300 `
-  --min=0 `
-  --max=2 `
+  --min-instances=0 `
+  --max-instances=2 `
   "--set-env-vars=^~^ENVIRONMENT=production~SUPABASE_URL=https://zegygoxpmnxpdhutdpqf.supabase.co~SUPABASE_STORAGE_BUCKET=claim-evidence~SENDGRID_FROM_EMAIL=$SendGridFrom~FRONTEND_URL=$FrontendOrigin~ALLOWED_ORIGINS=$FrontendOrigin~AI_PROCESSING_SYNC=true" `
   "--set-secrets=SUPABASE_ANON_KEY=claimpilot-supabase-anon-key:latest,SUPABASE_SERVICE_ROLE_KEY=claimpilot-supabase-service-role-key:latest,JWT_SECRET=claimpilot-jwt-secret:latest,SENDGRID_API_KEY=claimpilot-sendgrid-api-key:latest,TWILIO_ACCOUNT_SID=claimpilot-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=claimpilot-twilio-auth-token:latest,TWILIO_VERIFY_SERVICE_SID=claimpilot-twilio-verify-service-sid:latest"
 ```
