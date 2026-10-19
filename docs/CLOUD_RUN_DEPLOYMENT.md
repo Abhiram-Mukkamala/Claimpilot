@@ -1,239 +1,220 @@
-# ClaimPilot Backend Deployment — Google Cloud Run
+# ClaimPilot Backend Hosting Runbook — Google Cloud Run
 
-**Purpose:** Host the ClaimPilot FastAPI and Ultralytics inference backend on Google Cloud Run while maintaining the Supabase project for Authentication, PostgreSQL database, and private evidence Storage.
+**Last reviewed:** 20 October 2026  
+**Scope:** Prepare and verify the FastAPI/Ultralytics backend for Cloud Run. This document does not itself deploy a service, change Supabase data/schema/RLS, create demo records, or expose secrets.
 
-> [!IMPORTANT]
-> This runbook is strictly for deploying and configuring the container service on Cloud Run. It does **not** modify database schema, alter Row Level Security (RLS) policies, or seed data. Supabase remains the authoritative data plane.
+## 1. Current intended hosting layout
 
----
+- **GCP project:** `claimpilot-512009`
+- **Cloud Run / Artifact Registry region:** `asia-south1` (Mumbai)
+- **Cloud Run service:** `claimpilot-api`
+- **Supabase project:** `zegygoxpmnxpdhutdpqf`
+- **Supabase URL:** `https://zegygoxpmnxpdhutdpqf.supabase.co`
+- **Supabase region:** reported as Sydney (`ap-southeast-2)); it is **not** colocated with Cloud Run in Mumbai. Verify latency during the E2E test.
+- **Evidence bucket:** `claim-evidence`, intended to remain private.
 
-## Architecture & Sizing Overview
+The API runs in Cloud Run; Supabase remains the auth/database/storage provider. No live Cloud Run deployment was confirmed in the previous handoff. Treat all resources and credentials as needing a current check rather than relying on old screenshots or these notes.
 
-- **GCP Project:** `claimpilot-512009`
-- **Region:** `asia-south1` (Mumbai) — colocated near the Supabase region.
-- **Service Name:** `claimpilot-api`
-- **Supabase Project URL:** `https://zegygoxpmnxpdhutdpqf.supabase.co`
-- **Private Evidence Bucket:** `claim-evidence`
-- **Compute Sizing:**
-  - **vCPU:** 1
-  - **Memory:** 4 GiB (required to load YOLOv8s CarDD model weights `best.pt` and run metric depth/damage inference without OOM risks).
-  - **Concurrency:** 1 (ensures dedicated CPU/memory per concurrent ML inference request).
-  - **Request Timeout:** 300 seconds (accommodates cold starts and asynchronous/synchronous image processing pipelines).
-  - **Minimum Instances:** 0 (scales to zero to eliminate idle compute costs during inactive periods).
-  - **Maximum Instances:** 2 (prevents runaway costs while allowing burst handling).
+### Proposed initial sizing (not a benchmark result)
 
----
+- 1 vCPU, 4 GiB RAM
+- Request-based billing
+- Minimum instances 0, maximum instances 2
+- Concurrency 1
+- Request timeout 300 seconds
+- Container port 8080
 
-## 1. Project Setup & Prerequisites
+These are starting values for the hackathon demo. Check latency, cold start, memory, inference behavior, and cost with real test images before the finale. Scaling limits and timeout do not establish production capacity.
 
-Authenticate your local gcloud CLI and target the production GCP project:
+## 2. Safe preflight — inspect, don't mutate
 
-```bash
-gcloud auth login
-gcloud config set project claimpilot-512009
-gcloud config set run/region asia-south1
+Run these from PowerShell. Confirm your active account and the target project before running any command that changes resources.
+
+```powershell
+gcloud auth list
+gcloud config get-value project
+gcloud projects describe claimpilot-512009 --format="value(projectId)"
+gcloud services list --enabled --project=claimpilot-512009 --filter="name:(run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com)"
+gcloud artifacts repositories describe claimpilot --location=asia-south1 --project=claimpilot-512009
+gcloud iam service-accounts describe claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com --project=claimpilot-512009
+gcloud run services list --project=claimpilot-512009 --region=asia-south1
 ```
 
-Enable required Google Cloud APIs:
+If an inspect command says the resource is missing, stop and confirm the project ID before creating it. Historical notes say the APIs, Artifact Registry repository `claimpilot`, and runtime service account were previously created, but recheck them. Do not repeatedly create resources just because a list command returned an unexpected result.
 
-```bash
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  secretmanager.googleapis.com
+Before any billing-impacting activity, confirm billing is enabled and that any displayed credits are actually applicable to this project's billing account. A prior screenshot showed monthly Google credits, but their applicability/remaining value was not conclusively confirmed.
+
+## 3. Secret Manager audit (metadata only)
+
+Required secret-to-environment mappings:
+
+| Cloud Run variable | Secret Manager name | Notes |
+|---|---|---|
+| `SUPABASE_ANON_KEY` | `claimpilot-supabase-anon-key` | For backend Supabase client configuration |
+| `SUPABASE_SERVICE_ROLE_KEY` | `claimpilot-supabase-service-role-key` | Backend-only privileged key; never expose to browser |
+| `JWT_SECRET` | `claimpilot-jwt-secret` | Independent random signing secret, at least 32 characters |
+| `SENDGRID_API_KEY` | `claimpilot-sendgrid-api-key` | Email OTP provider |
+| `TWILIO_ACCOUNT_SID` | `claimpilot-twilio-account-sid` | Twilio account identifier |
+| `TWILIO_AUTH_TOKEN` | `claimpilot-twilio-auth-token` | Twilio API credential |
+| `TWILIO_VERIFY_SERVICE_SID` | `claimpilot-twilio-verify-service-sid` | Twilio Verify Service SID, usually starts with `VA` |
+
+**Actual versions are not certified by this document.** Earlier handoff notes said the first four secret containers and runtime-account access were created, but did not confirm their current enabled versions. Creation/population of the three Twilio Verify secret versions was also not confirmed. The status labels in earlier drafts were not backed by a current audit; do not rely on them.
+
+First list secret names; then check state/version metadata without displaying payloads:
+
+```powershell
+gcloud secrets list --project=claimpilot-512009 --format="table(name,createTime)"
 ```
 
-Create the Artifact Registry Docker repository (one-time setup):
+For each of the seven names above, run:
 
-```bash
-gcloud artifacts repositories create claimpilot \
-  --repository-format=docker \
-  --location=asia-south1 \
-  --description="ClaimPilot backend container images"
+```powershell
+gcloud secrets versions list SECRET_NAME --project=claimpilot-512009 --format="table(name,state,createTime,expireTime)"
+gcloud secrets get-iam-policy SECRET_NAME --project=claimpilot-512009
 ```
 
-Create a dedicated least-privilege runtime service account for Cloud Run:
+Replace `SECRET_NAME` with one name at a time. Never use `gcloud secrets versions access`, never print secret payloads, and never paste secret values into chat, source control, logs, or screenshots.
 
-```bash
-gcloud iam service-accounts create claimpilot-runtime \
-  --display-name="ClaimPilot Cloud Run Runtime Account"
+If a secret or enabled version is missing, pause and create/populate it through the approved GCP Console or a locally controlled secure process. Do not insert placeholder values. Generate a fresh JWT secret if needed, independently of the Supabase keys. After inspecting IAM policies, grant `roles/secretmanager.secretAccessor` only to the Cloud Run runtime service account and only on the secrets it needs.
+
+Verify the runtime account exists:
+
+`claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com`
+
+Do not create duplicate resources or change IAM until you have inspected current state.
+
+### Twilio Verify
+
+The intended SMS flow uses the Verify API with all three values: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`. The application sends a verification request and accepts an SMS code only when Twilio's check indicates approved/valid. `TWILIO_PHONE_NUMBER` is not required for this flow.
+
+The code retains a legacy Programmable SMS fallback if Verify is not configured. For this deployment, confirm all three Verify values are present so production does not unintentionally fall back. The previous handoff reported that the `claimpilot-twilio-phone-number` secret was deleted; leave it absent unless the owner deliberately chooses the legacy fallback.
+
+### SendGrid
+
+Email OTP requires both `SENDGRID_API_KEY` and a sender address in `SENDGRID_FROM_EMAIL` that is verified in SendGrid. Secret Manager can hold the API key; the sender address is a non-secret Cloud Run environment variable. The actual verified sender address and real delivery were not confirmed in the last handoff. Do not use a guessed address.
+
+## 4. Source and image: rebuild, do not deploy old `v1`
+
+The previously pushed image was:
+
+```text
+asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1
+sha256:fdad2b67315e9e2f3ac373d3f95665d0ed715dad346de1efa215de15c9bea1d4
 ```
 
----
+It predates the final merged Twilio Verify implementation. **Do not deploy this image as the final release.**
 
-## 2. Container Build & Packaging
+After the configuration PR is reviewed/merged, prepare a clean checkout of the **latest canonical `main`** at the intended release commit. Verify `git remote -v` points to `Abhiram-Mukkamala/Claimpilot`; a historical local checkout had an unrelated repository as `origin`. Ensure there are no local modifications that could change the build input.
 
-The backend container uses the hardened multi-stage Dockerfile located at `insurance-pro/backend/Dockerfile`. The build context is set to `./insurance-pro/backend` so that `.dockerignore` filters out non-backend artifacts and includes pre-trained model weights (`app/models/weights/best.pt`, ~22.5 MB).
+From the repository root in PowerShell:
 
-Submit the container build to Google Cloud Build:
-
-```bash
-gcloud builds submit \
-  --project=claimpilot-512009 \
-  --region=asia-south1 \
-  --tag=asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1 \
-  ./insurance-pro/backend
+```powershell
+git status --short --branch
+git remote -v
+git log -1 --oneline
+$Commit = (git rev-parse --short=12 HEAD).Trim()
+$Image = "asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:git-$Commit"
+Write-Host "Building source commit $(git rev-parse HEAD) as $Image"
+gcloud builds submit --project=claimpilot-512009 --region=asia-south1 --tag=$Image .\insurance-pro\backend
 ```
 
-*Note: If Cloud Build reports permissions errors pushing to Artifact Registry, grant the Cloud Build service account (`[PROJECT_NUMBER]@cloudbuild.gserviceaccount.com`) the role `roles/artifactregistry.writer`.*
+The command uses `insurance-pro/backend` as the build context. Record the full Git SHA and the image digest reported by the build/Artifact Registry. Do not overwrite `v1`; the new tag should be tied to the commit that was actually built.
 
----
+The prior local Docker checks verified loading `best.pt` and running synthetic-image inference, plus local `/health`, `/health/ready`, and a Supabase REST request on a **pre-merge image**. They do not establish that the current image is deployed or that real OTP and full E2E work.
 
-## 3. Secret Manager Configuration & Verification
+## 5. Configure and deploy a Cloud Run revision — only after preflight
 
-All sensitive credentials must be stored in Google Cloud Secret Manager and mounted as environment variables in Cloud Run. **Never hardcode secrets into Docker images, repository files, or `.env` templates.**
+Do not run this section until:
+- The source/image is rebuilt from the intended canonical commit.
+- All seven required secret names have usable enabled versions.
+- Runtime IAM bindings allow the service account to access the required secrets.
+- A verified SendGrid sender address is known.
+- The actual deployed frontend HTTPS origin is known and approved.
+- The team has explicitly authorized a live deployment.
 
-### Secret Mappings Table
+For the demo, synchronous assessment is recommended because Cloud Run request-based CPU allocation can be unsuitable for in-process background work after the response finishes. The code supports `AI_PROCESSING_SYNC=true` for inline assessment; keep the 300-second timeout and verify actual inference time. This is not a substitute for a durable task queue for production workloads.
 
-| Cloud Run Environment Variable | Secret Manager Secret Name | Audit Status in `claimpilot-512009` | Purpose |
-|--------------------------------|----------------------------|-----------------------------------|---------|
-| `SUPABASE_ANON_KEY` | `claimpilot-supabase-anon-key` | Active (Version 1 enabled) | Client/Anon key for Supabase public auth/queries |
-| `SUPABASE_SERVICE_ROLE_KEY` | `claimpilot-supabase-service-role-key` | Active (Version 1 enabled) | Backend admin key for private table/bucket operations |
-| `JWT_SECRET` | `claimpilot-jwt-secret` | Active (Version 2 enabled) | Minimum 32-character secret for signing session JWTs |
-| `SENDGRID_API_KEY` | `claimpilot-sendgrid-api-key` | Active (Version 1 enabled) | API key for transactional email OTP dispatch |
-| `TWILIO_ACCOUNT_SID` | `claimpilot-twilio-account-sid` | Active (Version 2 enabled) | Twilio account identifier for SMS verification |
-| `TWILIO_AUTH_TOKEN` | `claimpilot-twilio-auth-token` | Active (Version 1 enabled) | Twilio auth token for API authentication |
-| `TWILIO_VERIFY_SERVICE_SID` | `claimpilot-twilio-verify-service-sid` | **Action Required** (Must be created) | Twilio Verify Service SID (`VA...`) for OTP flow |
+Set the exact frontend values interactively (these are configuration, not secrets):
 
-### Pre-Deployment Action: Create Twilio Verify Secret
-
-Before creating or updating the Cloud Run revision, create the missing `claimpilot-twilio-verify-service-sid` secret:
-
-```bash
-# Create secret in Secret Manager
-gcloud secrets create claimpilot-twilio-verify-service-sid \
-  --project=claimpilot-512009 \
-  --replication-policy="automatic"
-
-# Add version with your Twilio Verify Service SID (format: VAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
-echo -n "VA_YOUR_ACTUAL_SERVICE_SID" | gcloud secrets versions add claimpilot-twilio-verify-service-sid \
-  --project=claimpilot-512009 \
-  --data-file=-
+```powershell
+$FrontendOrigin = (Read-Host "Enter the actual deployed frontend HTTPS origin, with no trailing slash").TrimEnd("/")
+$SendGridFrom = Read-Host "Enter the exact sender address verified in SendGrid"
 ```
 
-### Grant Secret Access to the Runtime Service Account
+Do not use the example domain `claimpilot.app` unless the project owner has confirmed that it is the real deployed frontend. Set only the approved origin(s); never use wildcard CORS.
 
-Grant the runtime service account read access to each secret:
+Deploy the commit-specific image:
 
-```bash
-$SECRETS = @(
-  "claimpilot-supabase-anon-key",
-  "claimpilot-supabase-service-role-key",
-  "claimpilot-jwt-secret",
-  "claimpilot-sendgrid-api-key",
-  "claimpilot-twilio-account-sid",
-  "claimpilot-twilio-auth-token",
-  "claimpilot-twilio-verify-service-sid"
-)
-
-foreach ($s in $SECRETS) {
-  gcloud secrets add-iam-policy-binding $s `
-    --project=claimpilot-512009 `
-    --member="serviceAccount:claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com" `
-    --role="roles/secretmanager.secretAccessor"
-}
+```powershell
+gcloud run deploy claimpilot-api `
+  --project=claimpilot-512009 `
+  --region=asia-south1 `
+  --image=$Image `
+  --platform=managed `
+  --allow-unauthenticated `
+  --service-account=claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com `
+  --port=8080 `
+  --cpu=1 `
+  --memory=4Gi `
+  --concurrency=1 `
+  --timeout=300 `
+  --min=0 `
+  --max=2 `
+  "--set-env-vars=^~^ENVIRONMENT=production~SUPABASE_URL=https://zegygoxpmnxpdhutdpqf.supabase.co~SUPABASE_STORAGE_BUCKET=claim-evidence~SENDGRID_FROM_EMAIL=$SendGridFrom~FRONTEND_URL=$FrontendOrigin~ALLOWED_ORIGINS=$FrontendOrigin~AI_PROCESSING_SYNC=true" `
+  "--set-secrets=SUPABASE_ANON_KEY=claimpilot-supabase-anon-key:latest,SUPABASE_SERVICE_ROLE_KEY=claimpilot-supabase-service-role-key:latest,JWT_SECRET=claimpilot-jwt-secret:latest,SENDGRID_API_KEY=claimpilot-sendgrid-api-key:latest,TWILIO_ACCOUNT_SID=claimpilot-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=claimpilot-twilio-auth-token:latest,TWILIO_VERIFY_SERVICE_SID=claimpilot-twilio-verify-service-sid:latest"
 ```
 
----
+`--allow-unauthenticated` makes the API network-reachable by the browser; it is not user authorization. Each protected endpoint must continue to enforce application authentication, roles, and ownership. CORS is not a substitute for auth.
 
-## 4. Twilio Verify SMS Service Configuration
+If a command fails, stop and inspect the error. Do not work around auth/authorization failures by making Supabase storage public, loosening RLS, exposing the service-role key, or enabling OTP development codes.
 
-ClaimPilot implements an integration with the **Twilio Verify v2 API** (`/Verifications` and `/VerificationCheck`):
+## 6. Post-deployment verification
 
-### Why `TWILIO_PHONE_NUMBER` is Not Required for Verify
-1. **Managed Delivery:** Twilio Verify dynamically routes and delivers SMS codes through Twilio's global alphanumeric and short-code sender pools.
-2. **Source Implementation:**
-   - [auth_otp.py](file:///C:/Projects/claimbot%20AI/wt-canonical-main/insurance-pro/backend/app/api/v1/auth_otp.py#L63-L121) checks `_is_twilio_verify_active()`. When `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` are non-empty, requests are dispatched directly to `https://verify.twilio.com/v2/Services/{TWILIO_VERIFY_SERVICE_SID}/Verifications`.
-   - **No sender phone number (`From`) is passed to or accepted by the Twilio Verify API.**
-   - In database records, `otp_code` is stored as `"VERIFY"`, and verification validation is delegated to `https://verify.twilio.com/v2/Services/{TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`.
-3. **Legacy Fallback Behavior:**
-   - If `TWILIO_VERIFY_SERVICE_SID` is omitted or empty, the backend falls back to legacy Programmable SMS (`send_otp_via_sms`), which *does* require `TWILIO_PHONE_NUMBER` (or `FAST2SMS_API_KEY`).
-   - For production deployment, configure `TWILIO_VERIFY_SERVICE_SID` and leave `TWILIO_PHONE_NUMBER` unset.
+Get the service URL from the successful `gcloud run deploy` output or:
 
----
-
-## 5. Cloud Run Service Deployment
-
-Deploy the service to Cloud Run with production environment variables and secret mappings:
-
-```bash
-gcloud run deploy claimpilot-api \
-  --project=claimpilot-512009 \
-  --region=asia-south1 \
-  --image=asia-south1-docker.pkg.dev/claimpilot-512009/claimpilot/claimpilot-api:v1 \
-  --platform=managed \
-  --allow-unauthenticated \
-  --service-account=claimpilot-runtime@claimpilot-512009.iam.gserviceaccount.com \
-  --port=8080 \
-  --cpu=1 \
-  --memory=4Gi \
-  --concurrency=1 \
-  --timeout=300 \
-  --min-instances=0 \
-  --max-instances=2 \
-  --set-env-vars="ENVIRONMENT=production,SUPABASE_URL=https://zegygoxpmnxpdhutdpqf.supabase.co,SUPABASE_STORAGE_BUCKET=claim-evidence,SENDGRID_FROM_EMAIL=notifications@claimpilot.com,FRONTEND_URL=https://claimpilot.app,ALLOWED_ORIGINS=https://claimpilot.app,AI_PROCESSING_SYNC=false" \
-  --set-secrets="SUPABASE_ANON_KEY=claimpilot-supabase-anon-key:latest,SUPABASE_SERVICE_ROLE_KEY=claimpilot-supabase-service-role-key:latest,JWT_SECRET=claimpilot-jwt-secret:latest,SENDGRID_API_KEY=claimpilot-sendgrid-api-key:latest,TWILIO_ACCOUNT_SID=claimpilot-twilio-account-sid:latest,TWILIO_AUTH_TOKEN=claimpilot-twilio-auth-token:latest,TWILIO_VERIFY_SERVICE_SID=claimpilot-twilio-verify-service-sid:latest"
+```powershell
+gcloud run services describe claimpilot-api --project=claimpilot-512009 --region=asia-south1 --format="value(status.url)"
 ```
 
-### Environment Variables Detail
+Check liveness and readiness:
 
-| Name | Production Value / Example | Notes |
-|------|---------------------------|-------|
-| `ENVIRONMENT` | `production` | Enforces production security; blocks hardcoded dev codes and mock OTP dispatch. |
-| `SUPABASE_URL` | `https://zegygoxpmnxpdhutdpqf.supabase.co` | Verified Supabase project endpoint. |
-| `SUPABASE_STORAGE_BUCKET` | `claim-evidence` | Target private Supabase storage bucket for car photos. |
-| `SENDGRID_FROM_EMAIL` | Sender address verified in SendGrid | Must match a verified single sender or domain in SendGrid. |
-| `FRONTEND_URL` | e.g. `https://claimpilot.app` | Exact HTTPS URL of the deployed frontend. |
-| `ALLOWED_ORIGINS` | e.g. `https://claimpilot.app` | Exact HTTPS origin(s), comma-separated. No wildcards (`*`) and no trailing slashes. |
-| `AI_PROCESSING_SYNC` | `false` | When `false`, image damage inference runs asynchronously in the background. Set `true` if an immediate synchronous response is needed. |
-
----
-
-## 6. Post-Deployment Verification & End-to-End Checklist
-
-Once Cloud Run outputs the service URL (`https://claimpilot-api-xxxx-el.a.run.app`), execute the following verification steps:
-
-### 1. Health & Readiness Verification
-- **Liveness probe:**
-  ```bash
-  curl -i https://<SERVICE_URL>/health
-  ```
-  *Expected Output:* HTTP 200 OK with `{"status":"healthy"}`.
-- **Readiness probe:**
-  ```bash
-  curl -i https://<SERVICE_URL>/health/ready
-  ```
-  *Expected Output:* HTTP 200 OK with database connection verified, storage bucket accessible, and OTP providers active.
-
-### 2. CORS Preflight Check
-Verify that cross-origin preflight requests from the production frontend origin are permitted:
-```bash
-curl -i -X OPTIONS https://<SERVICE_URL>/api/v1/claims/ \
-  -H "Origin: https://claimpilot.app" \
-  -H "Access-Control-Request-Method: GET" \
-  -H "Access-Control-Request-Headers: authorization"
+```powershell
+$ServiceUrl = Read-Host "Enter the exact Cloud Run service URL"
+Invoke-WebRequest "$ServiceUrl/health" -Method Get
+Invoke-WebRequest "$ServiceUrl/health/ready" -Method Get
 ```
-*Expected Output:* HTTP 200 OK with `access-control-allow-origin: https://claimpilot.app`.
 
-### 3. Frontend Build Configuration
-Update the frontend production build environment to route API calls to the Cloud Run backend:
-- Set `VITE_API_BASE_URL=https://<SERVICE_URL>/api/v1` in the frontend build pipeline.
-- Build and deploy the frontend bundle.
+Current `/health` is a liveness check and should return HTTP 200 with `{"status":"healthy"}`. Current `/health/ready` checks Supabase Data API access and email-OTP configuration; it does **not** verify Twilio SMS delivery, private evidence authorization, the frontend, or the whole E2E flow. Expected ready dependencies include `database: reachable` and `email_otp: configured`. Do not infer more from it than it checks.
 
-### 4. End-to-End User Journey Smoke Test
-Execute a full user workflow using team-owned demo accounts:
-1. **Claimant Sign Up / Login:**
-   - Request Email OTP (dispatched via SendGrid) and Phone OTP (dispatched via Twilio Verify).
-   - Enter received verification codes; confirm successful JWT session issuance.
-2. **Claim Submission:**
-   - Submit a new vehicle insurance claim with incident details and upload car damage imagery.
-   - Confirm upload succeeds directly into the private `claim-evidence` bucket.
-3. **AI Damage Assessment & Fraud Evaluation:**
-   - Confirm backend inference processes the image with `best.pt`.
-   - Confirm detection labels, damage severity, geometry-based cost estimates, and fraud risk score persist in Supabase.
-4. **Authorized Private Evidence Access:**
-   - Verify that private evidence URLs are signed URLs with finite expiration and reject unauthenticated requests.
-5. **Agent Review & Settlement:**
-   - Log in with agent credentials, review the assessed claim, verify the settlement amount calculation, and submit approval.
-   - Refresh the customer view to verify the updated status.
+Then complete the live test with team-owned accounts:
+
+1. Send and verify a real email OTP through SendGrid.
+2. Send an SMS OTP and verify it through Twilio Verify. Rejected and expired codes must fail.
+3. Sign in as a customer and submit a claim with required real demo details.
+4. Upload evidence and register the canonical storage path returned by the upload flow.
+5. Confirm inference runs with the deployed model and a real result or explicit flagged/manual-review failure is persisted. Do not treat synthetic-image loading as accuracy evidence.
+6. Confirm fraud-analysis result persistence where applicable; don't assert advanced segmentation/depth outputs unless the deployed API actually returns them.
+7. Sign in as an authorized agent, inspect the claim, and submit the permitted decision.
+8. Refresh the customer view and verify status/decision persistence and correct actor-level access.
+9. Test private evidence access, unauthorized requests, and a CORS preflight from the exact approved frontend origin.
+10. Review Cloud Logging for sanitized errors; inspect latency, memory, cold starts, and costs. Never capture OTPs, authorization headers, signed URLs, secret payloads, or customer PII in shared logs.
+
+Only mark full E2E as passed after the entire journey succeeds against the deployed service, not based on unit tests or health checks alone.
+
+## 7. Frontend integration
+
+The integrated frontend lives at `insurance-pro/frontend/ClaimPilot/`. Its production build must point its documented API base variable to `https://<CLOUD_RUN_SERVICE_URL>/api/v1` (inspect that checkout's `.env.example` and client configuration before setting the variable). Vite `VITE_*` values are embedded at build time, so rebuild/redeploy after changing them. Confirm the actual deployed frontend origin and keep `FRONTEND_URL` and `ALLOWED_ORIGINS` aligned with it.
+
+No frontend host/domain or full live customer-to-agent E2E was confirmed in the prior handoff.
+
+## 8. Hard guardrails
+
+- Do not run database migrations, schema scripts, or seed scripts as part of hosting. Supabase migration state must be audited separately.
+- Never print/inspect secret payloads in shared output. Use version metadata only.
+- Never put actual `.env` files into the image or commit them.
+- Do not enable `OTP_DEV_FIXED_CODE` in production.
+- Do not expose Supabase service-role keys to frontend variables.
+- Do not make evidence storage public to work around an access error.
+- Don't claim SendGrid/Twilio works until you complete real delivery and verification.
+- Don't deploy the old `v1` image as the final release.
+- Don't claim full E2E based solely on a successful build, unit tests, YOLO checkpoint load, `/health`, or `/health/ready`.
