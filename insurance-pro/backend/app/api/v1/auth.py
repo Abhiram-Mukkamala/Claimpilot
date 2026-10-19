@@ -15,17 +15,40 @@ router = APIRouter(prefix="/auth", tags=["Authentication & Profiles"])
 async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks, request: Request):
     """
     Step 1 of 2FA Login:
-    Validate email + password against Supabase Auth.
-    If valid, dispatch an OTP to email and mandate OTP verification before logging in.
+    Validate email or phone number + password against Supabase Auth.
+    If valid, dispatch an OTP and mandate OTP verification before logging in.
     """
-    email = (payload.get("email") or "").lower().strip()
+    identifier = (payload.get("email") or payload.get("identifier") or "").strip()
     password = payload.get("password") or ""
 
-    if not email or not password:
+    if not identifier or not password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": "Email and password are required"}
         )
+
+    # Determine if input is an email or a phone number
+    is_email = "@" in identifier
+    if is_email:
+        email = identifier.lower()
+    else:
+        # If it's a phone number, clean it and look up the associated email from the profiles table
+        clean_phone = "".join([c for c in identifier if c.isdigit()])[-10:]
+        try:
+            profile = await db.select("profiles", params={"phone_number": f"ilike.*{clean_phone}*"}, single=True)
+        except Exception as exc:
+            logger.error("event=auth.login outcome=phone_lookup_failed error_type=%s", type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Database lookup failed during login."}
+            )
+
+        if not profile or not isinstance(profile, dict) or not profile.get("email"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"message": "No account found registered with this phone number."}
+            )
+        email = profile.get("email")
 
     # Validate the password before creating the login OTP challenge.
     try:
@@ -38,7 +61,7 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
         if not supabase_user:
             raise Exception("Invalid credentials")
         logger.info("event=auth.login outcome=credentials_verified user_id=%s", supabase_user.id)
-        
+
     except Exception as auth_err:
         logger.warning("event=auth.login outcome=failure")
         request_id = log_route_exception(logger, request, "auth.login.failed", auth_err)
@@ -48,15 +71,22 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
         )
 
     # The purpose- and user-bound OTP challenge is issued only after password auth.
+    otp_channel = OtpChannel.email if is_email else OtpChannel.sms
+    otp_identifier = email if is_email else identifier
     otp_response = await issue_otp(
-        payload=OtpSendRequest(identifier=email, channel=OtpChannel.email),
+        payload=OtpSendRequest(identifier=otp_identifier, channel=otp_channel),
         background_tasks=background_tasks,
         purpose="login",
         authenticated_user_id=str(supabase_user.id),
     )
 
+    message = (
+        "Password accepted. An email verification challenge was recorded; enter the code once it arrives."
+        if is_email
+        else "Password accepted. An SMS verification challenge was recorded; enter the code once it arrives."
+    )
     return {
-        "message": "Password accepted. An email verification challenge was recorded; enter the code once it arrives.",
+        "message": message,
         "requires_otp": True,
         "email": email,
         "otp_details": otp_response
@@ -66,18 +96,35 @@ async def login_user(payload: Dict[str, Any], background_tasks: BackgroundTasks,
 @router.post("/register", response_model=Dict[str, Any], status_code=status.HTTP_202_ACCEPTED)
 async def register_user(payload: UserRegisterRequest, background_tasks: BackgroundTasks, request: Request):
     email = payload.email.lower().strip()
+    phone_number = (payload.phone_number or "").strip()
+    clean_phone = "".join([c for c in phone_number if c.isdigit()])[-10:] if phone_number else ""
+
     try:
-        existing = await db.select("profiles", params={"email": f"eq.{email}"}, single=True)
+        existing_email = await db.select("profiles", params={"email": f"eq.{email}"}, single=True)
+        existing_phone = None
+        if clean_phone:
+            existing_phone = await db.select(
+                "profiles",
+                params={"phone_number": f"ilike.*{clean_phone}*"},
+                single=True,
+            )
     except Exception as db_err:
         request_id = log_route_exception(logger, request, "auth.register.profile_lookup_failed", db_err)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"message": "Unable to start registration verification.", "error": f"Request ID: {request_id}"},
         ) from db_err
-    if existing:
+
+    if existing_email and isinstance(existing_email, dict) and existing_email.get("id"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": "An account with this email address already exists.", "email": email}
+        )
+
+    if existing_phone and isinstance(existing_phone, dict) and existing_phone.get("id"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "An account with this phone number already exists.", "phone_number": phone_number}
         )
 
     otp_response = await issue_otp(
