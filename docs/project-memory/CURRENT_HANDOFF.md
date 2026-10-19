@@ -1,51 +1,65 @@
 # ClaimPilot Current Handoff
 
-Last updated: 2026-10-19 (Asia/Kolkata)
+Last updated: 2026-10-19 (Asia/Kolkata), after verification of PR #5 merge.
 
-## Mission and priority
+## Immediate next goal
 
-MIT India Hackathon ClaimPilot. Immediate goal: reconcile the latest backend updates with the canonical release branch, validate them, merge reviewed fixes into canonical main, and align the correct files in the original local base checkout. Resume GCP deployment only after that source-of-truth alignment.
+PR #5 has been merged into canonical main, including the Twilio Verify implementation. Next: verify and align the original local base checkout to canonical main while preserving user-local edits; then update the Cloud Run runbook/secrets and rebuild a new container image from the exact merged source. Do not deploy the old v1 image.
 
-## Canonical GitHub state last observed
+## Canonical GitHub state last verified
 
 - Repository: Abhiram-Mukkamala/Claimpilot.
-- main was at 8f83ffca575697ba6a2e090e607c49c8d76cb005 when PR #5 was inspected.
-- PR #5: [Harden auth, AI processing, and Cloud Run packaging](https://github.com/Abhiram-Mukkamala/Claimpilot/pull/5), open and draft; head release/cloud-run-container-hardening, SHA 91dfc4d6c1f8066b2185c177b5ca9e851191a25c; four commits, 20 files changed, +1040/-56 at the time of inspection.
-- PR #4 is separate: [Prepare ClaimPilot backend for Cloud Run](https://github.com/Abhiram-Mukkamala/Claimpilot/pull/4), using branch deploy/cloud-run. It has a runbook defect: its deployment doc references the wrong legacy Supabase URL. Correct it before any deployment.
-- Branch release/predeploy-integration was 15 commits ahead and 18 behind main in the last compare. Do not merge it wholesale.
-- Most recent connector inspection of release/cloud-run-container-hardening and release/predeploy-integration showed the older custom SMS implementation: regular Twilio Messages API, phone-number sender config, and local OTP validation. This is not evidence about the contents of the user's subsequently uploaded backend files.
+- PR #5: [Harden auth, AI processing, and Cloud Run packaging](https://github.com/Abhiram-Mukkamala/Claimpilot/pull/5) is **closed and merged**.
+- PR #5 merge commit / current main SHA at last comparison: 03c10f5d97bfdbf7560b95ee6be6e7cfb44e8165.
+- PR #5 source head: 5b671713d579a2bfb054317c1d36494c2c4b9852.
+- Main includes changes to auth.py and auth_otp.py, a new test_twilio_verify.py, backend security/concurrency fixes, configurable synchronous AI processing, Docker/Cloud Run packaging, and best.pt model weights.
+- PR #5 description reports 184 backend pytest passed, including 9 Twilio Verify integration tests; 32 frontend tests passed; frontend build passed; lint had 0 errors and 13 warnings; YOLO weights/inference and git diff checks passed. These are the PR's recorded results, not tests rerun independently in this handoff.
+- Current main was ahead by seven commits from the old base 8f83ffca575697ba6a2e090e607c49c8d76cb005 at the time of the last compare.
+- release/cloud-run-container-hardening is one merge commit behind main; do not reopen or re-merge PR #5.
+- PR #4 is separate: [Prepare ClaimPilot backend for Cloud Run](https://github.com/Abhiram-Mukkamala/Claimpilot/pull/4), branch deploy/cloud-run. Its deployment runbook references the wrong legacy Supabase URL; correct it before using the runbook.
+- release/predeploy-integration was 15 commits ahead and 18 behind main in the last compare. Do not merge that branch wholesale.
+
+## Twilio Verify — now present on main
+
+GitHub source inspection of main confirmed:
+- config.py declares TWILIO_VERIFY_SERVICE_SID.
+- auth_otp.py starts SMS verification through Twilio Verify endpoint /v2/Services/{service_sid}/Verifications.
+- SMS code checks use /VerificationCheck, and the application requires Twilio status approved plus valid=true before accepting the SMS verification.
+- test_twilio_verify.py has tests for configured settings, phone formatting, sending, invalid phone/provider failures, approved verification, rejected code, expired code, and provider-check failure.
+- The flow remains custom FastAPI OTP, with Supabase database and application auth state; it is not Supabase built-in signInWithOtp/verifyOtp.
+- Main still contains legacy regular Twilio Messages API fallback settings. To activate Verify on Cloud Run, populate Account SID, Auth Token and Verify Service SID. Do not create/configure the sender phone number for the Verify path; the user deleted claimpilot-twilio-phone-number and should leave it absent unless intentionally choosing the legacy fallback.
+- Email OTP is still SendGrid; SendGrid key and verified sender configuration/delivery are not confirmed.
 
 ## Local workspace (Windows)
 
 - Canonical release worktree: C:\Projects\claimbot AI\wt-release-canonical.
 - Original local checkout/base: C:\Projects\claimbot AI\ClaimPilot-Final.
-- The original checkout uses remote origin pointing to shreyasshah707/ClaimPilot; do not use it for canonical pushes.
-- Canonical remote alias in the release worktree is abhiram, pointing to https://github.com/Abhiram-Mukkamala/Claimpilot.git.
-- Original local .env path used for container smoke test: C:\Projects\claimbot AI\ClaimPilot-Final\insurance-pro\backend\.env. Its Supabase URL and key lines originally had surrounding quote issues; user removed the literal quotes. Never copy or expose its values.
+- Original checkout's origin points to shreyasshah707/ClaimPilot; do not use it for canonical pushes.
+- Canonical remote alias abhiram in the release worktree points to https://github.com/Abhiram-Mukkamala/Claimpilot.git.
+- The original checkout .env at C:\Projects\claimbot AI\ClaimPilot-Final\insurance-pro\backend\.env had literal surrounding quote issues around the Supabase URL and keys. The user removed those quotes. Never copy or expose its values.
+- **No confirmation has been received that the original local base checkout has been aligned to merged main.** Check git status/remotes/branch/log before syncing and preserve all uncommitted/untracked changes.
 
-## Local Docker evidence already completed
+## Local container evidence already completed
 
-Image claimpilot-api:release-test built successfully from insurance-pro/backend before latest backend reconciliation.
+Before the new main commit, image claimpilot-api:release-test built successfully from insurance-pro/backend and was tested locally:
+- /app/app/models/weights/best.pt existed in image, 22,501,482 bytes.
+- Ultralytics loaded it as task detect with classes dent, scratch, crack, glass shatter, lamp broken, tire flat.
+- Synthetic-image inference completed. This proves load/execution only, not accuracy.
+- After fixing quoted values in local .env and recreating container, GET /health returned HTTP 200 {"status":"healthy"}.
+- GET /health/ready returned HTTP 200 with database reachable and email_otp configured.
+- Supabase REST query from container returned HTTP 200 with one row.
+- These tests were run against the pre-merge image/source; Twilio Verify behavior was not tested in that container.
+- These results are local-container results only, not a live Cloud Run deployment or full end-to-end result.
 
-- Model file inside container existed at /app/app/models/weights/best.pt, 22,501,482 bytes.
-- YOLO loaded; task detect; classes: dent, scratch, crack, glass shatter, lamp broken, tire flat.
-- Synthetic-image inference completed. This tests load/execution, not detection accuracy.
-- Container initially failed because local environment values had literal quote characters; after correcting .env and recreating the container without rebuilding image, GET /health returned HTTP 200 {"status":"healthy"}.
-- GET /health/ready returned HTTP 200, database reachable and email OTP configured.
-- Direct Supabase REST query from inside the container returned HTTP 200 with one row.
-- These are local-container results only; not a deployed-service or full end-to-end result.
+## Latest uploaded files
 
-## Latest uploaded backend files — inspection gap
+The user uploaded updated backend files individually, including auth_otp.py, config.py, main.py, supabase.py, services and many test files, plus Pasted text.txt. The current runtime initially failed to read those attachments. The current GitHub main was then independently inspected and confirmed to contain Twilio Verify changes and tests. Do not make the user upload everything again. If needed, retry access to the existing attachments; some older uploads may have expired.
 
-The user uploaded the updated backend modules individually, including auth_otp.py, config.py, main.py, supabase.py, backend services and multiple tests. They also uploaded a file named Pasted text.txt. The current session's container/Python file-reading tools repeatedly returned internal ClientError, so the uploaded source and pasted report were not inspected. Do not ask them to re-upload everything by default. First retry access to the specific existing attachments, then inspect the actual files. If they are expired/unavailable, request only app/api/v1/auth_otp.py or its relevant excerpts as a fallback.
+## Next actions in order
 
-## OTP/Twilio design decision still to settle
-
-The teammate stated the project uses custom FastAPI OTP logic with Supabase database records and Twilio/SendGrid for delivery; it does not use Supabase built-in signInWithOtp/verifyOtp.
-
-The user says they intend to use a Twilio Verify Service SID and it has not been working. The old GitHub release code:
-- calls Twilio regular Messages API using TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER;
-- generates its own code and validates it against Supabase OTP records;
-- does not configure a Verify Service SID or call Twilio Verify's verification-check API.
-
-Do not infer the latest uploaded code is the same as that old GitHub version. Verify the actual current source. Decide with the teammate whether final SMS delivery is regular Twilio Messages API or Twilio Verify. If using Verify, backend must call Verify for both starting and checking the verification, and tests must confirm approved/rejected/provider-error handling. Keep the frontend API contract compatible, including any challenge_id expectations. Email OTP remains a separate SendGrid flow unless explicitly changed.
+1. Align local base to merged canonical main safely (see BRANCH_AND_MERGE_PLAN.md).
+2. Verify GitHub main SHA and current branch/PR/CI state rather than relying on this static handoff indefinitely.
+3. Correct docs/CLOUD_RUN_DEPLOYMENT.md on deploy/cloud-run: replace legacy Supabase URL https://tiwdktgeqifhumcrwniv.supabase.co with https://zegygoxpmnxpdhutdpqf.supabase.co.
+4. Populate/verify Secret Manager secret versions, including Twilio Verify secrets and existing Supabase/JWT/SendGrid secrets; never expose values.
+5. Build and push a new versioned image from exact merged main (do not deploy old v1 digest).
+6. Deploy Cloud Run only after frontend origin, secret mappings, email sender, and SMS Verify configuration are confirmed; then test health/readiness and the complete real customer-to-agent flow.
