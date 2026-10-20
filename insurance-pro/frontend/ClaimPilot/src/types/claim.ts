@@ -11,6 +11,17 @@ export type ClaimStatus =
   | 'Settlement Accepted'
   | 'Disputed';
 
+export interface ClaimEvidenceItem {
+  id?: string;
+  claim_id?: string;
+  file_url: string;
+  file_type?: string;
+  category: 'photo' | 'damage_photo' | 'video' | 'walkaround_video' | 'dl_front' | 'dl_back' | 'document' | string;
+  created_at?: string;
+  metadata?: Record<string, any>;
+  storage_path?: string;
+}
+
 export interface Claim {
   id: string;
   backendId?: string;
@@ -36,6 +47,7 @@ export interface Claim {
   images: string[];
   video?: string;
   videos?: string[];
+  evidence?: ClaimEvidenceItem[];
   fraudRisk: 'Low' | 'Medium' | 'High';
   fraudScore?: number;
   engineerEstimate?: number;

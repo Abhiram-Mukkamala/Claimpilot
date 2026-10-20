@@ -7,8 +7,9 @@ import type { DamageAnalysis, FraudAnalysis, DamageArea } from '../../types/anal
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DamageViewer } from '../../components/ui/DamageViewer';
-import { ArrowLeft, User, Phone, CheckCircle, XCircle, AlertTriangle, ShieldCheck, Box, Clock } from 'lucide-react';
+import { ArrowLeft, User, Phone, CheckCircle, XCircle, AlertTriangle, ShieldCheck, Box, Clock, Layers, Video } from 'lucide-react';
 import { advancedAnalysisApi, AdvancedAnalysisData } from '../../services/advancedAnalysisApi';
+import { AgentEvidenceViewer } from '../../components/agent/AgentEvidenceViewer';
 import { InputComparison } from '../../components/analysis/InputComparison';
 import { DamageSegmentation } from '../../components/analysis/DamageSegmentation';
 import { DamageDeformation3D } from '../../components/analysis/DamageDeformation3D';
@@ -29,7 +30,7 @@ export const AgentClaimDetails = () => {
   const [submitting, setSubmitting] = useState(false);
   const [mainImage, setMainImage] = useState<string | undefined>();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'damage' | '3d-analysis' | 'fraud'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'damage' | '3d-analysis' | 'fraud'>('overview');
   const [selectedDamage, setSelectedDamage] = useState<DamageArea | null>(null);
   const [advancedData, setAdvancedData] = useState<AdvancedAnalysisData | null>(null);
   const tabPaneRef = useRef<HTMLDivElement>(null);
@@ -260,6 +261,12 @@ export const AgentClaimDetails = () => {
               Overview
             </button>
             <button
+              className={`tab-btn ${activeTab === 'evidence' ? 'active' : ''}`}
+              onClick={() => setActiveTab('evidence')}
+            >
+              <Layers size={14} /> Client Evidence ({(claim.evidence || []).length})
+            </button>
+            <button
               className={`tab-btn ${activeTab === 'damage' ? 'active' : ''}`}
               onClick={() => setActiveTab('damage')}
             >
@@ -432,11 +439,105 @@ export const AgentClaimDetails = () => {
                     )}
                   </Card>
                 </div>
+
+                {/* Client Uploaded Evidence Summary Card */}
+                <Card style={{ marginTop: '0.5rem', border: '1px solid var(--border)' }}>
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-sm">
+                      <h3 className="text-sm text-muted uppercase font-bold m-0 flex items-center gap-xs">
+                        <Layers size={14} /> Uploaded Client Evidence
+                      </h3>
+                      <Badge variant="neutral">{(claim.evidence || []).length} items</Badge>
+                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                      onClick={() => setActiveTab('evidence')}
+                    >
+                      Open Full Evidence Gallery &rarr;
+                    </button>
+                  </div>
+
+                  {(claim.evidence && claim.evidence.length > 0) ? (
+                    <div className="flex gap-sm overflow-x-auto pb-2">
+                      {claim.evidence.map((item, idx) => {
+                        const isVid = (item.category || '').includes('video');
+                        return (
+                          <div
+                            key={item.id || idx}
+                            onClick={() => setActiveTab('evidence')}
+                            style={{
+                              flexShrink: 0,
+                              width: '110px',
+                              cursor: 'pointer',
+                              borderRadius: 'var(--radius-sm)',
+                              overflow: 'hidden',
+                              border: '1px solid var(--border)',
+                              backgroundColor: 'var(--bg-primary)',
+                              transition: 'transform 0.15s ease',
+                            }}
+                            title={`Click to inspect ${item.category || 'evidence'}`}
+                          >
+                            <div style={{ height: '70px', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {isVid ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Video size={20} color="var(--accent)" />
+                                  <span style={{ fontSize: '0.625rem', color: '#fff' }}>Video</span>
+                                </div>
+                              ) : (
+                                <img src={item.file_url} alt="Evidence" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              )}
+                            </div>
+                            <div style={{ padding: '0.375rem 0.5rem', fontSize: '0.6875rem', color: 'var(--text-secondary)', textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {(item.category || 'Photo').replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted m-0 italic">No evidence uploaded for this claim yet.</p>
+                  )}
+                </Card>
               </div>
             )}
 
+            {activeTab === 'evidence' && (
+              <AgentEvidenceViewer
+                evidence={claim.evidence || []}
+                claimId={claim.id}
+                claimVehicle={claim.vehicle}
+                customerName={claim.customerName}
+                onOpenDamageAnalysis={() => setActiveTab('damage')}
+              />
+            )}
+
             {activeTab === 'damage' && (
-              <div className="flex gap-lg">
+              <div className="flex flex-col gap-md">
+                <div style={{
+                  padding: '0.625rem 1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.8125rem'
+                }}>
+                  <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <Layers size={14} color="var(--accent)" />
+                    Viewing AI damage segmentation. Client submitted <strong>{(claim.evidence || []).length} total evidence files</strong> (including walkaround videos and ID).
+                  </span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                    onClick={() => setActiveTab('evidence')}
+                  >
+                    View All Client Evidence &rarr;
+                  </button>
+                </div>
+
+                <div className="flex gap-lg">
                 <div style={{ flex: 2 }}>
                   <Card style={{ padding: '0.5rem' }}>
                     {damageAnalysis && damageStatus === 'available' ? (
@@ -540,6 +641,7 @@ export const AgentClaimDetails = () => {
                     )}
                   </Card>
                 </div>
+              </div>
               </div>
             )}
 

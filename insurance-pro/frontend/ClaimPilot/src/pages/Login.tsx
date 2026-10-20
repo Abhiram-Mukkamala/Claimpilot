@@ -5,6 +5,7 @@ import { authApi, authOtpApi } from '../services/claimsApi';
 import { useGSAP, animateFadeIn, animateStagger, isReducedMotion, gsap } from '../lib/gsap';
 import { About } from './About';
 import { AlertCircle } from 'lucide-react';
+import { LegalModal, TermsAndConditions, PrivacyPolicy } from '../components/legal';
 
 export type TransitionState = 'idle' | 'enteringAbout' | 'about' | 'returningToLogin';
 
@@ -14,6 +15,11 @@ export const Login: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [transitionState, setTransitionState] = useState<TransitionState>('idle');
   const [activeSection, setActiveSection] = useState('hero');
+
+  // Legal Consent State (Sign-up gating)
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
+  const [openLegalModal, setOpenLegalModal] = useState<'terms' | 'privacy' | null>(null);
 
   // Form State
   const [email, setEmail] = useState('');
@@ -279,9 +285,22 @@ export const Login: React.FC = () => {
 
       if (transitionState !== 'idle') return;
 
+      // Never trigger about transition while any modal is open
+      if (openLegalModal || showOtp) return;
+
       const target = e.target as HTMLElement;
 
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+      // Do not trigger about transition when scrolling inside form cards, inputs, or modal overlays
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.closest('.login-glass-card') ||
+        target.closest('.login-form-col') ||
+        target.closest('.legal-modal-overlay') ||
+        target.closest('.legal-modal-card') ||
+        target.closest('[role="dialog"]')
+      ) {
         return;
       }
 
@@ -313,7 +332,7 @@ export const Login: React.FC = () => {
     return () => {
       window.removeEventListener('wheel', handleScroll);
     };
-  }, [transitionState, startAboutTransition]);
+  }, [transitionState, startAboutTransition, openLegalModal, showOtp]);
 
   const getMaskedIdentifier = (val: string) => {
     if (!val) return '******123';
@@ -551,6 +570,9 @@ export const Login: React.FC = () => {
     e.preventDefault();
 
     if (isAuthenticating) return;
+    if (isSignUp && (!agreedToTerms || !agreedToPrivacy)) {
+      return;
+    }
     if (!validateForm()) return;
 
     if (!isSignUp) {
@@ -803,17 +825,18 @@ export const Login: React.FC = () => {
             className="login-glass-card"
             style={{
               width: '100%',
-              maxWidth: '430px',
+              maxWidth: isSignUp ? '560px' : '430px',
+              transition: 'max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
               backgroundColor: 'rgba(16, 16, 22, 0.32)',
               backdropFilter: 'blur(5px) saturate(100%)',
               WebkitBackdropFilter: 'blur(5px) saturate(120%)',
               border: '1px solid rgba(255, 255, 255, 0.12)',
               borderRadius: 'var(--radius-lg)',
-              padding: '2.5rem',
+              padding: isSignUp ? '2rem 2.25rem' : '2.5rem',
               boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 24px rgba(255, 255, 255, 0.02)',
             }}
           >
-            <div style={{ marginBottom: '2rem' }}>
+            <div style={{ marginBottom: isSignUp ? '1.25rem' : '2rem' }}>
               <h2 style={{
                 fontSize: '1.25rem',
                 fontWeight: 600,
@@ -829,7 +852,7 @@ export const Login: React.FC = () => {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: isSignUp ? '0.75rem' : '1rem' }}>
               {errors.auth && (
                 <div style={{
                   padding: '0.625rem 0.875rem',
@@ -848,77 +871,98 @@ export const Login: React.FC = () => {
                 </div>
               )}
 
-              {isSignUp && (
+              {isSignUp ? (
                 <>
-                  <div>
-                    <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                      Full Name <span style={{ color: 'var(--danger)' }}>*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={name}
-                      onChange={(e) => { setName(e.target.value); if (errors.name) setErrors({ ...errors, name: '' }); }}
-                      placeholder="John Doe"
-                      style={{ borderColor: errors.name ? 'var(--danger)' : undefined }}
-                    />
-                    {errors.name && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.name}</p>}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+                        Full Name <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={name}
+                        onChange={(e) => { setName(e.target.value); if (errors.name) setErrors({ ...errors, name: '' }); }}
+                        placeholder="John Doe"
+                        style={{ borderColor: errors.name ? 'var(--danger)' : undefined }}
+                      />
+                      {errors.name && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.name}</p>}
+                    </div>
+
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+                        Date of Birth <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={dob}
+                        max={new Date().toISOString().split('T')[0]}
+                        onChange={(e) => { setDob(e.target.value); if (errors.dob) setErrors({ ...errors, dob: '' }); }}
+                        style={{ borderColor: errors.dob ? 'var(--danger)' : undefined, color: dob ? 'inherit' : 'var(--text-muted)' }}
+                      />
+                      {errors.dob && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.dob}</p>}
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                      Date of Birth <span style={{ color: 'var(--danger)' }}>*</span>
-                    </label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={dob}
-                      max={new Date().toISOString().split('T')[0]}
-                      onChange={(e) => { setDob(e.target.value); if (errors.dob) setErrors({ ...errors, dob: '' }); }}
-                      style={{ borderColor: errors.dob ? 'var(--danger)' : undefined, color: dob ? 'inherit' : 'var(--text-muted)' }}
-                    />
-                    {errors.dob && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.dob}</p>}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+                        Email address <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          if (errors.email || errors.auth) setErrors({ ...errors, email: '', auth: '' });
+                        }}
+                        placeholder="example@gmail.com"
+                        autoComplete="email"
+                        style={{ borderColor: (errors.email || errors.auth) ? 'var(--danger)' : undefined }}
+                      />
+                      {errors.email && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.email}</p>}
+                    </div>
+
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+                        Phone number <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        className="form-input"
+                        value={phone}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^\d+\-\s()]/g, '');
+                          setPhone(cleaned);
+                          if (errors.phone) setErrors({ ...errors, phone: '' });
+                        }}
+                        placeholder="+91 98765 43210"
+                        style={{ borderColor: errors.phone ? 'var(--danger)' : undefined }}
+                      />
+                      {errors.phone && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.phone}</p>}
+                    </div>
                   </div>
                 </>
-              )}
-
-              <div>
-                <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                  {isSignUp ? 'Email address' : 'Email address or Phone number'} {isSignUp && <span style={{ color: 'var(--danger)' }}>*</span>}
-                </label>
-                <input
-                  type={isSignUp ? "email" : "text"}
-                  className="form-input"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (errors.email || errors.auth) setErrors({ ...errors, email: '', auth: '' });
-                  }}
-                  placeholder={isSignUp ? "agent@claimpilot.ai" : "Enter email or phone number"}
-                  autoComplete={isSignUp ? "email" : "username"}
-                  style={{ borderColor: (errors.email || errors.auth) ? 'var(--danger)' : undefined }}
-                />
-                {errors.email && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.email}</p>}
-              </div>
-
-              {isSignUp && (
+              ) : (
                 <div>
                   <label className="form-label" style={{ fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-                    Phone number <span style={{ color: 'var(--danger)' }}>*</span>
+                    Email address or Phone number
                   </label>
                   <input
-                    type="tel"
+                    type="text"
                     className="form-input"
-                    value={phone}
+                    value={email}
                     onChange={(e) => {
-                      const cleaned = e.target.value.replace(/[^\d+\-\s()]/g, '');
-                      setPhone(cleaned);
-                      if (errors.phone) setErrors({ ...errors, phone: '' });
+                      setEmail(e.target.value);
+                      if (errors.email || errors.auth) setErrors({ ...errors, email: '', auth: '' });
                     }}
-                    placeholder="+91 98765 43210"
-                    style={{ borderColor: errors.phone ? 'var(--danger)' : undefined }}
+                    placeholder="Enter email or phone number"
+                    autoComplete="username"
+                    style={{ borderColor: (errors.email || errors.auth) ? 'var(--danger)' : undefined }}
                   />
-                  {errors.phone && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.phone}</p>}
+                  {errors.email && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{errors.email}</p>}
                 </div>
               )}
 
@@ -957,10 +1001,129 @@ export const Login: React.FC = () => {
                 )}
               </div>
 
+              {isSignUp && (
+                <div className="signup-consent-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginTop: '0.25rem' }}>
+                  <label
+                    htmlFor="agree-terms-checkbox"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.625rem',
+                      fontSize: '0.8125rem',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <input
+                      id="agree-terms-checkbox"
+                      type="checkbox"
+                      checked={agreedToTerms}
+                      onChange={(e) => setAgreedToTerms(e.target.checked)}
+                      style={{
+                        marginTop: '0.125rem',
+                        cursor: 'pointer',
+                        accentColor: '#FFFFFF',
+                        width: '1rem',
+                        height: '1rem',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>
+                      I agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenLegalModal('terms');
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          margin: 0,
+                          color: 'var(--text-primary)',
+                          fontWeight: 500,
+                          textDecoration: 'underline',
+                          textUnderlineOffset: '3px',
+                          cursor: 'pointer',
+                          font: 'inherit',
+                        }}
+                      >
+                        Terms and Conditions
+                      </button>
+                    </span>
+                  </label>
+
+                  <label
+                    htmlFor="agree-privacy-checkbox"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.625rem',
+                      fontSize: '0.8125rem',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <input
+                      id="agree-privacy-checkbox"
+                      type="checkbox"
+                      checked={agreedToPrivacy}
+                      onChange={(e) => setAgreedToPrivacy(e.target.checked)}
+                      style={{
+                        marginTop: '0.125rem',
+                        cursor: 'pointer',
+                        accentColor: '#FFFFFF',
+                        width: '1rem',
+                        height: '1rem',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>
+                      I agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenLegalModal('privacy');
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          margin: 0,
+                          color: 'var(--text-primary)',
+                          fontWeight: 500,
+                          textDecoration: 'underline',
+                          textUnderlineOffset: '3px',
+                          cursor: 'pointer',
+                          font: 'inherit',
+                        }}
+                      >
+                        Privacy Policy
+                      </button>
+                    </span>
+                  </label>
+                </div>
+              )}
+
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ width: '100%', marginTop: '0.5rem', padding: '0.75rem', fontWeight: 600 }}
+                disabled={isAuthenticating || (isSignUp && (!agreedToTerms || !agreedToPrivacy))}
+                style={{
+                  width: '100%',
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  fontWeight: 600,
+                  opacity: (isSignUp && (!agreedToTerms || !agreedToPrivacy)) ? 0.45 : 1,
+                  cursor: (isSignUp && (!agreedToTerms || !agreedToPrivacy)) ? 'not-allowed' : 'pointer',
+                  transition: 'opacity 0.2s ease, background-color 0.2s ease, border-color 0.2s ease',
+                }}
               >
                 {isSignUp ? 'Create Account' : 'Sign In'}
               </button>
@@ -970,7 +1133,12 @@ export const Login: React.FC = () => {
               <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                 {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
                 <button
-                  onClick={() => { setIsSignUp(!isSignUp); setErrors({}); }}
+                  onClick={() => {
+                    setIsSignUp(!isSignUp);
+                    setErrors({});
+                    setAgreedToTerms(false);
+                    setAgreedToPrivacy(false);
+                  }}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -1138,6 +1306,23 @@ export const Login: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Legal Policy Modals */}
+      <LegalModal
+        isOpen={openLegalModal === 'terms'}
+        title="Terms and Conditions"
+        onClose={() => setOpenLegalModal(null)}
+      >
+        <TermsAndConditions />
+      </LegalModal>
+
+      <LegalModal
+        isOpen={openLegalModal === 'privacy'}
+        title="Privacy Policy"
+        onClose={() => setOpenLegalModal(null)}
+      >
+        <PrivacyPolicy />
+      </LegalModal>
     </>
   );
 };

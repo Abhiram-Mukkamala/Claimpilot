@@ -122,10 +122,14 @@ export const AgentClaims = () => {
     return true; // 'All'
   });
 
-  // Consolidate evidence images array from fetched evidence or claim object
-  const evidenceImages: string[] = selectedClaimDetail?.evidence?.length
-    ? selectedClaimDetail.evidence.map((e: any) => e.file_url || e.file_path || e.url).filter(Boolean)
-    : selectedClaim?.images || [];
+  // Consolidate evidence list with categories from fetched evidence or claim object
+  const evidenceList: any[] = selectedClaimDetail?.evidence?.length
+    ? selectedClaimDetail.evidence.filter((e: any) => e.file_url || e.file_path || e.url)
+    : (selectedClaim?.evidence?.length
+      ? selectedClaim.evidence
+      : (selectedClaim?.images || []).map((url, i) => ({ file_url: url, category: 'photo', id: `photo-${i + 1}` })));
+
+  const evidenceImages: string[] = evidenceList.map((e: any) => e.file_url || e.file_path || e.url).filter(Boolean);
 
   const handlePrevImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -301,11 +305,40 @@ export const AgentClaims = () => {
 
               {evidenceImages.length > 0 ? (
                 <>
-                  <img
-                    src={evidenceImages[currentImageIndex]}
-                    alt={`Evidence ${currentImageIndex + 1}`}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }}
-                  />
+                  {(() => {
+                    const currentEv = evidenceList[currentImageIndex];
+                    const isVid = (currentEv?.category || '').includes('video') || (currentEv?.file_type && currentEv.file_type.includes('video')) || evidenceImages[currentImageIndex]?.endsWith('.mp4');
+                    return isVid ? (
+                      <video
+                        src={evidenceImages[currentImageIndex]}
+                        controls
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', zIndex: 1, backgroundColor: '#000' }}
+                      />
+                    ) : (
+                      <img
+                        src={evidenceImages[currentImageIndex]}
+                        alt={`Evidence ${currentImageIndex + 1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }}
+                      />
+                    );
+                  })()}
+
+                  {/* Category Badge on Drawer Preview */}
+                  <div style={{ position: 'absolute', top: '0.5rem', left: '0.5rem', zIndex: 2 }}>
+                    <span style={{
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                      backdropFilter: 'blur(4px)',
+                      color: '#fff',
+                      fontSize: '0.6875rem',
+                      fontWeight: 600,
+                      textTransform: 'capitalize'
+                    }}>
+                      {(evidenceList[currentImageIndex]?.category || 'Photo').replace(/_/g, ' ')}
+                    </span>
+                  </div>
+
                   {evidenceImages.length > 1 && (
                     <>
                       <button

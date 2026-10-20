@@ -3,7 +3,7 @@
  * Seamlessly bridges the React frontend to the FastAPI + Supabase backend.
  */
 
-import type { Claim } from '../types/claim';
+import type { Claim, ClaimEvidenceItem } from '../types/claim';
 
 // Optional chaining keeps this module importable outside Vite (e.g. Node test runner).
 export const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -112,6 +112,89 @@ export function mapBackendClaimToFrontend(raw: any, evidenceList: any[] = [], cl
   const dlFront = evidenceList.find((e: any) => e.category === 'dl_front')?.file_url || raw.driver_dl_front_photo || raw.driverLicenseFrontPhoto;
   const dlBack = evidenceList.find((e: any) => e.category === 'dl_back')?.file_url || raw.driver_dl_back_photo || raw.driverLicenseBackPhoto;
 
+  // Normalize and compile all evidence uploaded by the client into a unified, rich list
+  const normalizedEvidence: ClaimEvidenceItem[] = [];
+  const seenUrls = new Set<string>();
+
+  if (Array.isArray(evidenceList)) {
+    for (const item of evidenceList) {
+      const url = item.file_url || item.storage_path || item.url || '';
+      if (url && !seenUrls.has(url)) {
+        seenUrls.add(url);
+        normalizedEvidence.push({
+          id: item.id || `ev-${normalizedEvidence.length + 1}`,
+          claim_id: item.claim_id || raw.id,
+          file_url: url,
+          file_type: item.file_type || (item.category?.includes('video') ? 'video/mp4' : 'image/jpeg'),
+          category: item.category || 'photo',
+          created_at: item.created_at || raw.created_at,
+          metadata: item.metadata,
+          storage_path: item.storage_path,
+        });
+      }
+    }
+  }
+
+  // DL Front
+  if (dlFront && !seenUrls.has(dlFront)) {
+    seenUrls.add(dlFront);
+    normalizedEvidence.push({
+      id: 'dl-front',
+      claim_id: raw.id,
+      file_url: dlFront,
+      file_type: 'image/jpeg',
+      category: 'dl_front',
+      created_at: raw.created_at,
+    });
+  }
+
+  // DL Back
+  if (dlBack && !seenUrls.has(dlBack)) {
+    seenUrls.add(dlBack);
+    normalizedEvidence.push({
+      id: 'dl-back',
+      claim_id: raw.id,
+      file_url: dlBack,
+      file_type: 'image/jpeg',
+      category: 'dl_back',
+      created_at: raw.created_at,
+    });
+  }
+
+  // Fallback videos
+  const allVideos = videos.length > 0 ? videos : (Array.isArray(raw.videos) ? raw.videos : (raw.video ? [raw.video] : []));
+  for (let i = 0; i < allVideos.length; i++) {
+    const vUrl = allVideos[i];
+    if (vUrl && !seenUrls.has(vUrl)) {
+      seenUrls.add(vUrl);
+      normalizedEvidence.push({
+        id: `video-${i + 1}`,
+        claim_id: raw.id,
+        file_url: vUrl,
+        file_type: 'video/mp4',
+        category: 'walkaround_video',
+        created_at: raw.created_at,
+      });
+    }
+  }
+
+  // Fallback photos
+  const allImages = photos.length > 0 ? photos : (Array.isArray(raw.images) ? raw.images : []);
+  for (let i = 0; i < allImages.length; i++) {
+    const imgUrl = allImages[i];
+    if (imgUrl && !seenUrls.has(imgUrl)) {
+      seenUrls.add(imgUrl);
+      normalizedEvidence.push({
+        id: `photo-${i + 1}`,
+        claim_id: raw.id,
+        file_url: imgUrl,
+        file_type: 'image/jpeg',
+        category: 'damage_photo',
+        created_at: raw.created_at,
+      });
+    }
+  }
+
   let mappedStatus: Claim['status'] = 'Pending Review';
   const bs = (raw.status || '').toLowerCase();
   if (bs === 'pending_review') mappedStatus = 'Pending Review';
@@ -162,6 +245,7 @@ export function mapBackendClaimToFrontend(raw: any, evidenceList: any[] = [], cl
     images: photos.length > 0 ? photos : (Array.isArray(raw.images) ? raw.images : []),
     video: videos[0] || raw.video,
     videos: videos.length > 0 ? videos : (Array.isArray(raw.videos) ? raw.videos : []),
+    evidence: normalizedEvidence,
     fraudRisk: mappedRisk,
     fraudScore: typeof raw.fraud_score === 'number' ? raw.fraud_score : undefined,
     engineerEstimate: aiAnalysis?.estimated_cost_max ? Number(aiAnalysis.estimated_cost_max) : (raw.claimed_amount ? Number(raw.claimed_amount) : undefined),
