@@ -41,7 +41,7 @@ htmlcov/
 # Agent & CLI caches
 .agents/
 .claude/
-agent/
+/agent/
 skills-lock.json
 
 # Editor directories and files
