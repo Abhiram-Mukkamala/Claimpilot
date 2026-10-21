@@ -1,8 +1,8 @@
 """
 ClaimPilot AI — Shared ExtendView Core Engine
 =============================================
-Shared design system, FastAPI/Supabase live claim fetcher, @st.cache_resource v3
-model loader, and interactive Plotly/OpenCV 2D & 3D telemetry renderers used by
+Shared design system, FastAPI + Direct Supabase live claim fetcher, @st.cache_resource
+v3 model loader, and interactive Plotly/OpenCV 2D & 3D telemetry renderers used by
 both `customer_app.py` (Customer Extended View) and `agent_app.py` (Agent Extended View).
 """
 
@@ -11,6 +11,7 @@ import sys
 import json
 import hashlib
 import urllib.request
+import urllib.parse
 import urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
@@ -36,7 +37,7 @@ try:
 except ImportError:
     HAS_YOLO = False
 
-# Optional Gemini SDK (reads GEMINI_API_KEY strictly from environment)
+# Optional Gemini SDK (reads GEMINI_API_KEY strictly from environment / .env)
 HAS_GEMINI = False
 GEMINI_SDK = None
 try:
@@ -79,14 +80,52 @@ IMG_SIZE = 480
 PLATE_PIXEL_WIDTH = 190
 DEFAULT_REF_MM = 500
 
+
+def _load_env_config() -> Dict[str, str]:
+    """Loads backend .env or environment variables into memory without printing any secrets."""
+    cfg: Dict[str, str] = {}
+    env_candidates = [
+        EXTENDVIEW_ROOT.parent / "backend" / ".env",
+        EXTENDVIEW_ROOT / ".env",
+    ]
+    for env_path in env_candidates:
+        if env_path.exists():
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and v and k not in cfg:
+                            cfg[k] = v
+            except Exception:
+                pass
+
+    for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "CLAIMPILOT_API_BASE_URL", "CLAIMPILOT_FRONTEND_URL"):
+        if os.environ.get(k):
+            cfg[k] = os.environ[k]
+        else:
+            try:
+                if hasattr(st, "secrets") and k in st.secrets:
+                    cfg[k] = str(st.secrets[k])
+            except Exception:
+                pass
+    return cfg
+
+
+_ENV_CFG = _load_env_config()
+
 API_BASE_URL = (
-    os.environ.get("CLAIMPILOT_API_BASE_URL")
+    _ENV_CFG.get("CLAIMPILOT_API_BASE_URL")
     or os.environ.get("VITE_API_BASE_URL")
     or "http://localhost:8000/api/v1"
 ).rstrip("/")
 
 FRONTEND_BASE_URL = (
-    os.environ.get("CLAIMPILOT_FRONTEND_URL")
+    _ENV_CFG.get("CLAIMPILOT_FRONTEND_URL")
     or "http://localhost:5173"
 ).rstrip("/")
 
@@ -196,14 +235,15 @@ def load_all_models():
 # ---------------------------------------------------------------------------
 # CLAIMPILOT REACT DESIGN SYSTEM CSS INJECTION
 # ---------------------------------------------------------------------------
-def inject_claimpilot_theme():
+def inject_claimpilot_theme(is_embedded: bool = False):
     """Injects exact CSS tokens from ClaimPilot React (src/index.css & src/agent.css)."""
+    top_pad = "0.5rem" if is_embedded else "1.25rem"
     st.markdown(
-        """
+        f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-        :root {
+        :root {{
             --bg-base: #070709;
             --bg-surface: rgba(16, 16, 24, 0.72);
             --bg-elevated: rgba(22, 22, 32, 0.85);
@@ -219,70 +259,70 @@ def inject_claimpilot_theme():
             --radius-sm: 12px;
             --radius-md: 16px;
             --radius-lg: 20px;
-        }
+        }}
 
         /* Global App Canvas matching DottedWaveBackground */
-        .stApp {
+        .stApp {{
             background-color: #070709 !important;
             background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px) !important;
             background-size: 24px 24px !important;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
             color: var(--text-primary) !important;
-        }
+        }}
 
         /* Hide default Streamlit chrome */
-        #MainMenu, footer, header[data-testid="stHeader"] {
+        #MainMenu, footer, header[data-testid="stHeader"] {{
             visibility: hidden !important;
             height: 0 !important;
-        }
-        .block-container {
-            padding-top: 1.25rem !important;
-            padding-bottom: 3rem !important;
+        }}
+        .block-container {{
+            padding-top: {top_pad} !important;
+            padding-bottom: 2.5rem !important;
             max-width: 1680px !important;
-        }
+        }}
 
         /* Sidebar Crystal Glass */
-        section[data-testid="stSidebar"] {
-            background: rgba(12, 12, 18, 0.88) !important;
+        section[data-testid="stSidebar"] {{
+            background: rgba(12, 12, 18, 0.92) !important;
             backdrop-filter: blur(20px) saturate(140%) !important;
             border-right: 1px solid rgba(255, 255, 255, 0.10) !important;
-        }
+        }}
 
         /* Typography */
-        h1, h2, h3, h4, .cp-heading {
+        h1, h2, h3, h4, .cp-heading {{
             font-family: 'Inter', sans-serif !important;
             letter-spacing: -0.025em !important;
             color: #F2F2F2 !important;
-        }
-        code, pre, .cp-mono {
+        }}
+        code, pre, .cp-mono {{
             font-family: 'JetBrains Mono', monospace !important;
-        }
+        }}
 
         /* Crystal Glass Cards */
-        .cp-card, div[data-testid="stVerticalBlockBorderWrapper"] {
+        .cp-card, div[data-testid="stVerticalBlockBorderWrapper"] {{
             background: rgba(16, 16, 24, 0.65) !important;
             backdrop-filter: blur(18px) saturate(140%) !important;
             -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
             border: 1px solid rgba(255, 255, 255, 0.10) !important;
             border-radius: 16px !important;
-            padding: 1.25rem !important;
+            padding: 1.15rem !important;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-        }
+        }}
 
         /* Top Navigation Header matching TopBar.tsx & AgentLayout.tsx */
-        .cp-topbar {
+        .cp-topbar {{
             display: flex;
             align-items: center;
             justify-content: space-between;
             padding: 0.85rem 1.35rem;
-            margin-bottom: 1.35rem;
+            margin-bottom: 1.25rem;
             background: rgba(14, 14, 20, 0.72);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 18px;
             box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.10);
-        }
-        .cp-brand {
+        }}
+        .cp-brand {{
             display: flex;
             align-items: center;
             gap: 0.65rem;
@@ -290,8 +330,8 @@ def inject_claimpilot_theme():
             font-size: 1.05rem;
             letter-spacing: -0.03em;
             color: #F2F2F2;
-        }
-        .cp-back-btn {
+        }}
+        .cp-back-btn {{
             display: inline-flex;
             align-items: center;
             gap: 0.45rem;
@@ -304,15 +344,15 @@ def inject_claimpilot_theme():
             font-weight: 600;
             text-decoration: none !important;
             transition: all 0.15s ease;
-        }
-        .cp-back-btn:hover {
+        }}
+        .cp-back-btn:hover {{
             background: rgba(5, 150, 105, 0.18);
             border-color: #059669;
             color: #FFFFFF !important;
-        }
+        }}
 
         /* Status & Role Badges */
-        .cp-badge {
+        .cp-badge {{
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
@@ -322,89 +362,89 @@ def inject_claimpilot_theme():
             font-weight: 600;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-        }
-        .cp-badge-success {
+        }}
+        .cp-badge-success {{
             background: rgba(34, 197, 94, 0.14);
             color: #4ADE80;
             border: 1px solid rgba(34, 197, 94, 0.32);
-        }
-        .cp-badge-warning {
+        }}
+        .cp-badge-warning {{
             background: rgba(217, 119, 6, 0.16);
             color: #FBBF24;
             border: 1px solid rgba(217, 119, 6, 0.35);
-        }
-        .cp-badge-danger {
+        }}
+        .cp-badge-danger {{
             background: rgba(220, 38, 38, 0.16);
             color: #F87171;
             border: 1px solid rgba(220, 38, 38, 0.35);
-        }
-        .cp-badge-neutral {
+        }}
+        .cp-badge-neutral {{
             background: rgba(255, 255, 255, 0.07);
             color: #D1D5DB;
             border: 1px solid rgba(255, 255, 255, 0.14);
-        }
+        }}
 
         /* High-Density KPI Metric Cards */
-        .cp-kpi-grid {
+        .cp-kpi-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
-            gap: 0.9rem;
-            margin-bottom: 1.25rem;
-        }
-        .cp-kpi-card {
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 0.85rem;
+            margin-bottom: 1.15rem;
+        }}
+        .cp-kpi-card {{
             background: rgba(16, 16, 24, 0.68);
             backdrop-filter: blur(14px);
             border: 1px solid rgba(255, 255, 255, 0.10);
             border-radius: 14px;
-            padding: 1rem 1.15rem;
+            padding: 0.9rem 1.1rem;
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        }
-        .cp-kpi-label {
-            font-size: 0.72rem;
+        }}
+        .cp-kpi-label {{
+            font-size: 0.71rem;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             color: #9BA3AF;
-            margin-bottom: 0.35rem;
-        }
-        .cp-kpi-value {
+            margin-bottom: 0.3rem;
+        }}
+        .cp-kpi-value {{
             font-family: 'JetBrains Mono', monospace;
-            font-size: 1.45rem;
+            font-size: 1.38rem;
             font-weight: 700;
             color: #F2F2F2;
             line-height: 1.2;
-        }
-        .cp-kpi-sub {
-            font-size: 0.75rem;
+        }}
+        .cp-kpi-sub {{
+            font-size: 0.74rem;
             color: #6B7280;
-            margin-top: 0.25rem;
-        }
+            margin-top: 0.22rem;
+        }}
 
         /* Tabs matching agent.css .tab-nav */
-        div[data-baseweb="tab-list"] {
+        div[data-baseweb="tab-list"] {{
             gap: 1.25rem !important;
             border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
             background: transparent !important;
-        }
-        button[data-baseweb="tab"] {
+        }}
+        button[data-baseweb="tab"] {{
             font-family: 'Inter', sans-serif !important;
             font-size: 0.9rem !important;
             font-weight: 500 !important;
             color: #9BA3AF !important;
             padding: 0.55rem 0.25rem !important;
             background: transparent !important;
-        }
-        button[data-baseweb="tab"][aria-selected="true"] {
+        }}
+        button[data-baseweb="tab"][aria-selected="true"] {{
             color: #F2F2F2 !important;
             font-weight: 600 !important;
-        }
-        div[data-baseweb="tab-highlight"] {
+        }}
+        div[data-baseweb="tab-highlight"] {{
             background-color: #059669 !important;
             height: 2px !important;
-        }
+        }}
 
         /* Primary Buttons */
-        .stButton > button, .stDownloadButton > button {
+        .stButton > button, .stDownloadButton > button {{
             background-color: #059669 !important;
             color: #FFFFFF !important;
             border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -412,11 +452,11 @@ def inject_claimpilot_theme():
             font-weight: 600 !important;
             padding: 0.45rem 1.15rem !important;
             transition: all 0.15s ease !important;
-        }
-        .stButton > button:hover, .stDownloadButton > button:hover {
+        }}
+        .stButton > button:hover, .stDownloadButton > button:hover {{
             background-color: #047857 !important;
             transform: translateY(-1px);
-        }
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -430,8 +470,12 @@ def render_topbar(
     vehicle_name: Optional[str] = None,
     status_text: Optional[str] = None,
     back_path: str = "/customer",
+    is_embedded: bool = False,
 ):
-    """Renders the ClaimPilot AI top header bar with a direct back-link to React."""
+    """Renders the ClaimPilot AI top header bar when opened standalone (skipped when embedded in React iframe)."""
+    if is_embedded:
+        return
+
     back_url = f"{FRONTEND_BASE_URL}{back_path}"
     status_cls = "cp-badge-neutral"
     if status_text:
@@ -479,13 +523,13 @@ def render_topbar(
 
 
 # ---------------------------------------------------------------------------
-# LIVE BACKEND & SUPABASE CLAIM FETCHER
+# LIVE BACKEND + DIRECT SUPABASE FETCHER
 # ---------------------------------------------------------------------------
-def _http_get_json(url: str, token: Optional[str] = None, timeout: int = 12) -> Optional[Dict[str, Any]]:
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers, method="GET")
+def _http_get_json(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 8) -> Any:
+    req_headers = {"Accept": "application/json"}
+    if headers:
+        req_headers.update(headers)
+    req = urllib.request.Request(url, headers=req_headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -493,23 +537,177 @@ def _http_get_json(url: str, token: Optional[str] = None, timeout: int = 12) -> 
         return None
 
 
-def download_image_from_url(image_url: str, timeout: int = 15) -> Optional[np.ndarray]:
-    """Downloads a claim evidence photo from a signed Supabase URL into a BGR numpy array."""
-    if not image_url:
+def _supabase_rest_get(table: str, query_params: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
+    sb_url = _ENV_CFG.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = _ENV_CFG.get("SUPABASE_SERVICE_ROLE_KEY") or _ENV_CFG.get("SUPABASE_ANON_KEY") or ""
+    if not sb_url or not sb_key:
         return None
-    try:
-        req = urllib.request.Request(
-            image_url,
-            headers={"User-Agent": "ClaimPilot-ExtendView/3.0"},
-            method="GET",
+    qs = urllib.parse.urlencode(query_params)
+    url = f"{sb_url}/rest/v1/{table}?{qs}"
+    headers = {
+        "apikey": sb_key,
+        "Authorization": f"Bearer {sb_key}",
+    }
+    res = _http_get_json(url, headers=headers, timeout=10)
+    return res if isinstance(res, list) else None
+
+
+def fetch_recent_claims_list(limit: int = 15) -> List[Dict[str, Any]]:
+    """Fetches recent claims directly from Supabase so standalone mode can switch claims."""
+    rows = _supabase_rest_get(
+        "claims",
+        {"select": "id,claim_number,vehicle_name,status,incident_type,created_at", "order": "created_at.desc", "limit": str(limit)},
+    )
+    return rows or []
+
+
+def download_image_from_url(image_url: str, storage_path: Optional[str] = None, timeout: int = 12) -> Optional[np.ndarray]:
+    """Downloads a claim evidence photo from signed URL or directly from Supabase Storage via service role key."""
+    if image_url:
+        try:
+            req = urllib.request.Request(
+                image_url,
+                headers={"User-Agent": "ClaimPilot-ExtendView/3.0"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw_bytes = resp.read()
+            arr = np.asarray(bytearray(raw_bytes), dtype=np.uint8)
+            bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if bgr is not None:
+                return bgr
+        except Exception:
+            pass
+
+    if storage_path:
+        sb_url = _ENV_CFG.get("SUPABASE_URL", "").rstrip("/")
+        sb_key = _ENV_CFG.get("SUPABASE_SERVICE_ROLE_KEY") or _ENV_CFG.get("SUPABASE_ANON_KEY") or ""
+        default_bucket = _ENV_CFG.get("SUPABASE_STORAGE_BUCKET") or "claim-evidence"
+        if sb_url and sb_key:
+            clean_path = storage_path.lstrip("/")
+            for b_prefix in ("claim-evidence/", "claims-media/"):
+                if clean_path.startswith(b_prefix):
+                    clean_path = clean_path[len(b_prefix):]
+            encoded_path = urllib.parse.quote(clean_path, safe="/")
+            for bucket in (default_bucket, "claim-evidence", "claims-media"):
+                for prefix in ("object", "object/authenticated", "object/public"):
+                    direct_url = f"{sb_url}/storage/v1/{prefix}/{bucket}/{encoded_path}"
+                    try:
+                        req = urllib.request.Request(
+                            direct_url,
+                            headers={
+                                "apikey": sb_key,
+                                "Authorization": f"Bearer {sb_key}",
+                            },
+                            method="GET",
+                        )
+                        with urllib.request.urlopen(req, timeout=timeout) as resp:
+                            raw_bytes = resp.read()
+                        arr = np.asarray(bytearray(raw_bytes), dtype=np.uint8)
+                        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                        if bgr is not None:
+                            return bgr
+                    except Exception:
+                        pass
+
+    return None
+
+
+def _fetch_bundle_from_supabase_direct(claim_id: Optional[str], role: str = "customer") -> Optional[Dict[str, Any]]:
+    """Queries Supabase PostgREST directly when FastAPI (:8000) is offline or no JWT is provided."""
+    sb_url = _ENV_CFG.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = _ENV_CFG.get("SUPABASE_SERVICE_ROLE_KEY") or _ENV_CFG.get("SUPABASE_ANON_KEY") or ""
+    if not sb_url or not sb_key:
+        return None
+
+    raw_claim = None
+    if claim_id:
+        # Try by UUID id first, then by claim_number
+        if len(claim_id) == 36 and "-" in claim_id:
+            rows = _supabase_rest_get("claims", {"select": "*", "id": f"eq.{claim_id}", "limit": "1"})
+            if rows:
+                raw_claim = rows[0]
+        if not raw_claim:
+            rows = _supabase_rest_get("claims", {"select": "*", "claim_number": f"eq.{claim_id}", "limit": "1"})
+            if rows:
+                raw_claim = rows[0]
+
+    # If no claim_id passed (or not found), pick the most recent claim in Supabase that has media
+    if not raw_claim:
+        media_rows = (
+            _supabase_rest_get(
+                "claim_evidence",
+                {"select": "claim_id,category,storage_path", "order": "created_at.desc", "limit": "20"},
+            )
+            or _supabase_rest_get(
+                "claim_media",
+                {"select": "claim_id,category,storage_path", "order": "created_at.desc", "limit": "20"},
+            )
+            or []
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw_bytes = resp.read()
-        arr = np.asarray(bytearray(raw_bytes), dtype=np.uint8)
-        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        return bgr
-    except Exception:
+        photo_claim_id = None
+        for m in media_rows:
+            cat = (m.get("category") or "").lower()
+            if cat in ("photo", "damage_photo", "") and m.get("claim_id"):
+                photo_claim_id = m["claim_id"]
+                break
+        if photo_claim_id:
+            rows = _supabase_rest_get("claims", {"select": "*", "id": f"eq.{photo_claim_id}", "limit": "1"})
+            if rows:
+                raw_claim = rows[0]
+        if not raw_claim:
+            rows = _supabase_rest_get("claims", {"select": "*", "order": "created_at.desc", "limit": "1"})
+            if rows:
+                raw_claim = rows[0]
+
+    if not raw_claim:
         return None
+
+    resolved_uuid = raw_claim.get("id")
+    evidence_list = (
+        _supabase_rest_get("claim_evidence", {"select": "*", "claim_id": f"eq.{resolved_uuid}"})
+        or _supabase_rest_get("claim_media", {"select": "*", "claim_id": f"eq.{resolved_uuid}"})
+        or []
+    )
+    ai_rows = _supabase_rest_get("claim_ai_analysis", {"select": "*", "claim_id": f"eq.{resolved_uuid}", "order": "created_at.desc", "limit": "1"}) or []
+    ai_analysis = ai_rows[0] if ai_rows else {}
+
+    claimant = {}
+    user_id = raw_claim.get("user_id")
+    if user_id:
+        prof_rows = _supabase_rest_get("profiles", {"select": "*", "id": f"eq.{user_id}", "limit": "1"}) or []
+        if prof_rows:
+            claimant = prof_rows[0]
+
+    photos = []
+    for ev in evidence_list:
+        cat = (ev.get("category") or "").lower()
+        s_path = ev.get("storage_path") or ""
+        f_url = ev.get("file_url") or ""
+        if (s_path or f_url) and cat in ("photo", "damage_photo", ""):
+            photos.append({
+                "id": ev.get("id") or f"photo_{len(photos)+1}",
+                "url": f_url,
+                "storage_path": s_path,
+                "category": cat or "damage_photo",
+            })
+
+    fraud_data = {}
+    if role == "agent":
+        fraud_rows = _supabase_rest_get(
+            "claim_fraud_analyses",
+            {"select": "*", "claim_id": f"eq.{resolved_uuid}", "order": "created_at.desc", "limit": "1"},
+        ) or []
+        if fraud_rows:
+            fraud_data = fraud_rows[0]
+
+    return {
+        "claim": raw_claim,
+        "claimant": claimant,
+        "photos": photos,
+        "ai_analysis": ai_analysis if isinstance(ai_analysis, dict) else {},
+        "fraud_analysis": fraud_data if isinstance(fraud_data, dict) else {},
+    }
 
 
 def fetch_live_claim_bundle(
@@ -519,61 +717,62 @@ def fetch_live_claim_bundle(
 ) -> Optional[Dict[str, Any]]:
     """
     Fetches live claim details, evidence photos, AI analysis, and (for agent role only)
-    fraud analysis from the ClaimPilot FastAPI backend.
+    fraud analysis from FastAPI first, falling back automatically to direct Supabase PostgREST.
     """
-    if not claim_id:
-        return None
+    if claim_id:
+        endpoints = (
+            [f"{API_BASE_URL}/agent/claims/{claim_id}", f"{API_BASE_URL}/claims/{claim_id}"]
+            if role == "agent"
+            else [f"{API_BASE_URL}/claims/{claim_id}", f"{API_BASE_URL}/agent/claims/{claim_id}"]
+        )
+        auth_headers = {"Authorization": f"Bearer {token}"} if token else None
+        payload = None
+        for ep in endpoints:
+            data = _http_get_json(ep, headers=auth_headers, timeout=4)
+            if isinstance(data, dict) and (data.get("claim") or data.get("id") or data.get("claim_number")):
+                payload = data
+                break
 
-    endpoints = (
-        [f"{API_BASE_URL}/agent/claims/{claim_id}", f"{API_BASE_URL}/claims/{claim_id}"]
-        if role == "agent"
-        else [f"{API_BASE_URL}/claims/{claim_id}", f"{API_BASE_URL}/agent/claims/{claim_id}"]
-    )
+        if payload:
+            raw_claim = payload.get("claim") if isinstance(payload.get("claim"), dict) else payload
+            evidence_list = payload.get("evidence") or raw_claim.get("evidence") or []
+            ai_analysis = payload.get("ai_analysis") or raw_claim.get("ai_analysis") or {}
+            claimant = payload.get("claimant") or raw_claim.get("claimant") or {}
 
-    payload = None
-    for ep in endpoints:
-        data = _http_get_json(ep, token=token)
-        if data and (data.get("claim") or data.get("id") or data.get("claim_number")):
-            payload = data
-            break
+            photos = []
+            for ev in evidence_list:
+                cat = (ev.get("category") or "").lower()
+                f_url = ev.get("file_url") or ""
+                s_path = ev.get("storage_path") or ""
+                if (f_url or s_path) and cat in ("photo", "damage_photo", ""):
+                    photos.append({
+                        "id": ev.get("id") or f"photo_{len(photos)+1}",
+                        "url": f_url,
+                        "storage_path": s_path,
+                        "category": cat or "damage_photo",
+                    })
 
-    if not payload:
-        return None
+            if not photos and isinstance(raw_claim.get("images"), list):
+                for idx, u in enumerate(raw_claim["images"]):
+                    if isinstance(u, str) and u:
+                        photos.append({"id": f"img_{idx+1}", "url": u, "storage_path": "", "category": "damage_photo"})
 
-    raw_claim = payload.get("claim") if isinstance(payload.get("claim"), dict) else payload
-    evidence_list = payload.get("evidence") or raw_claim.get("evidence") or []
-    ai_analysis = payload.get("ai_analysis") or raw_claim.get("ai_analysis") or {}
-    claimant = payload.get("claimant") or raw_claim.get("claimant") or {}
+            fraud_data = {}
+            if role == "agent":
+                fraud_resp = _http_get_json(f"{API_BASE_URL}/claims/{claim_id}/fraud", headers=auth_headers, timeout=4)
+                if isinstance(fraud_resp, dict):
+                    fraud_data = fraud_resp.get("fraud_analysis") if isinstance(fraud_resp.get("fraud_analysis"), dict) else fraud_resp
 
-    photos = []
-    for ev in evidence_list:
-        cat = (ev.get("category") or "").lower()
-        f_url = ev.get("file_url")
-        if f_url and cat in ("photo", "damage_photo", ""):
-            photos.append({
-                "id": ev.get("id") or f"photo_{len(photos)+1}",
-                "url": f_url,
-                "category": cat or "damage_photo",
-            })
+            return {
+                "claim": raw_claim,
+                "claimant": claimant,
+                "photos": photos,
+                "ai_analysis": ai_analysis if isinstance(ai_analysis, dict) else {},
+                "fraud_analysis": fraud_data if isinstance(fraud_data, dict) else {},
+            }
 
-    if not photos and isinstance(raw_claim.get("images"), list):
-        for idx, u in enumerate(raw_claim["images"]):
-            if isinstance(u, str) and u:
-                photos.append({"id": f"img_{idx+1}", "url": u, "category": "damage_photo"})
-
-    fraud_data = None
-    if role == "agent":
-        fraud_resp = _http_get_json(f"{API_BASE_URL}/claims/{claim_id}/fraud", token=token)
-        if fraud_resp:
-            fraud_data = fraud_resp.get("fraud_analysis") if isinstance(fraud_resp.get("fraud_analysis"), dict) else fraud_resp
-
-    return {
-        "claim": raw_claim,
-        "claimant": claimant,
-        "photos": photos,
-        "ai_analysis": ai_analysis if isinstance(ai_analysis, dict) else {},
-        "fraud_analysis": fraud_data if isinstance(fraud_data, dict) else {},
-    }
+    # Fallback: query Supabase directly (works even when FastAPI is stopped or no claim_id was passed)
+    return _fetch_bundle_from_supabase_direct(claim_id, role=role)
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +903,6 @@ def compute_relative_depth(depth_map: np.ndarray, mask: np.ndarray) -> np.ndarra
         baseline = float(np.median(depth_map))
 
     delta = np.abs(depth_map - baseline)
-    # Normalize extreme background depth jumps so the panel deformation basin is clearly visible
     if mask_bool.sum() > 0:
         in_mask_p95 = float(np.percentile(delta[mask_bool], 95))
         cap = max(in_mask_p95 * 1.45, 5.0)
@@ -1201,7 +1399,7 @@ def generate_gemini_inr_estimate(
     user_narrative: str,
     api_key: Optional[str] = None,
 ) -> Optional[str]:
-    resolved_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    resolved_key = api_key or _ENV_CFG.get("GEMINI_API_KEY") or _ENV_CFG.get("GOOGLE_API_KEY")
     if not resolved_key or not HAS_GEMINI:
         return None
 

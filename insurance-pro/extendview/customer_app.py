@@ -20,9 +20,13 @@ Run standalone on Port 8501:
     streamlit run customer_app.py --server.port 8501
 """
 
+import importlib
 import cv2
 import numpy as np
 import streamlit as st
+
+import extendview_core
+importlib.reload(extendview_core)
 
 from extendview_core import (
     DEFAULT_REF_MM,
@@ -37,6 +41,7 @@ from extendview_core import (
     download_image_from_url,
     execute_cached_pipeline,
     fetch_live_claim_bundle,
+    fetch_recent_claims_list,
     inject_claimpilot_theme,
     load_all_models,
     normal_to_rgb,
@@ -49,6 +54,11 @@ from extendview_core import (
 
 
 def run_customer_extendview(set_page_cfg: bool = True):
+    qp = st.query_params
+    is_embedded = str(qp.get("embed") or "").lower() in ("true", "1", "yes")
+    claim_id = qp.get("claim_id") or qp.get("id") or ""
+    token = qp.get("token") or ""
+
     if set_page_cfg:
         st.set_page_config(
             page_title="ClaimPilot AI | 3D Damage Inspection",
@@ -57,12 +67,29 @@ def run_customer_extendview(set_page_cfg: bool = True):
             initial_sidebar_state="collapsed",
         )
 
-    inject_claimpilot_theme()
+    inject_claimpilot_theme(is_embedded=is_embedded)
     load_all_models()
 
-    qp = st.query_params
-    claim_id = qp.get("claim_id") or qp.get("id") or ""
-    token = qp.get("token") or ""
+    # ---- Sidebar (Collapsed by Default for Clean Customer Experience) ----
+    st.sidebar.markdown("### 🛡️ Inspection Controls")
+
+    recent_claims = fetch_recent_claims_list(limit=15)
+    if not claim_id and recent_claims:
+        claim_options = [str(c.get("id")) for c in recent_claims]
+        claim_labels = {}
+        for c in recent_claims:
+            cid = str(c.get("id"))
+            cnum = c.get("claim_number") or cid[:8]
+            veh = c.get("vehicle_name") or "Insured Vehicle"
+            claim_labels[cid] = f"{cnum} — {veh}"
+        selected_cid = st.sidebar.selectbox(
+            "Select Active Claim",
+            claim_options,
+            index=0,
+            format_func=lambda x: claim_labels.get(x, x),
+        )
+        if selected_cid:
+            claim_id = selected_cid
 
     live_bundle = None
     if claim_id:
@@ -85,10 +112,9 @@ def run_customer_extendview(set_page_cfg: bool = True):
         vehicle_name=vehicle_name,
         status_text=raw_status,
         back_path=back_path,
+        is_embedded=is_embedded,
     )
 
-    # ---- Sidebar (Collapsed by Default for Clean Customer Experience) ----
-    st.sidebar.markdown("### 🛡️ Inspection Controls")
     normal_display_mode = st.sidebar.selectbox(
         "Surface Curvature View Style",
         ["Inverted B&W", "Standard Color", "Negative Color"],
@@ -112,24 +138,24 @@ def run_customer_extendview(set_page_cfg: bool = True):
             )
         else:
             chosen_idx = 0
-        photo_url = photos[chosen_idx]["url"]
-        selected_bgr = download_image_from_url(photo_url)
+        photo_item = photos[chosen_idx]
+        selected_bgr = download_image_from_url(
+            photo_item.get("url", ""),
+            storage_path=photo_item.get("storage_path", ""),
+        )
         selected_photo_label = f"Evidence Photo #{chosen_idx + 1}"
 
     # Fallback if opened without a claim_id or if image URL could not be reached
     if selected_bgr is None:
-        with st.expander(
-            "📸 Upload a Vehicle Photo or Explore Sample 3D Scans" if not claim_id else "📸 Evidence Photo Source",
-            expanded=(not bool(claim_id)),
-        ):
-            col_u1, col_u2 = st.columns([2, 1])
+        with st.expander("📸 Switch Sample 3D Scan or Upload a Custom Photo", expanded=False):
+            col_u1, col_u2 = st.columns([1, 2])
             with col_u1:
+                preset_choice = st.selectbox("Preview 3D Damage Scan", list(PRESETS.keys()))
+            with col_u2:
                 uploaded = st.file_uploader(
-                    "Upload a vehicle damage photo (JPG / PNG) for instant 3D surface analysis",
+                    "Or upload a vehicle damage photo (JPG / PNG)",
                     type=["jpg", "jpeg", "png"],
                 )
-            with col_u2:
-                preset_choice = st.selectbox("Or preview sample 3D scan", list(PRESETS.keys()))
 
         if uploaded is not None:
             raw_bytes = uploaded.read()
@@ -317,6 +343,8 @@ def run_customer_extendview(set_page_cfg: bool = True):
                 unsafe_allow_html=True,
             )
 
+
+main = run_customer_extendview
 
 if __name__ == "__main__":
     run_customer_extendview(set_page_cfg=True)

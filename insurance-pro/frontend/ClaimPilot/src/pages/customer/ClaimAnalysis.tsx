@@ -8,7 +8,7 @@ import type { DamageAnalysis, DamageArea } from '../../types/analysis';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DamageViewer } from '../../components/ui/DamageViewer';
-import { ArrowLeft, ShieldAlert, Zap, AlertTriangle, CheckCircle, Box } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useGSAP, animateFadeIn, animateStagger } from '../../lib/gsap';
 
 export const ClaimAnalysis = () => {
@@ -340,21 +340,17 @@ export const ClaimAnalysis = () => {
           )}
 
           {/* Extended View (Streamlit 2D/3D Depth + DSINE) & 3D Mesh Viewer CTAs */}
-          <a
-            href={getCustomerExtendViewUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
+          <div
             className="interactive-card block p-md"
             style={{
               background: 'rgba(5, 150, 105, 0.08)',
               backdropFilter: 'blur(12px)',
               border: '1px solid rgba(5, 150, 105, 0.38)',
-              textDecoration: 'none',
               borderRadius: 'var(--radius-md)',
               boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.25)',
             }}
           >
-            <div className="flex items-center justify-between gap-md">
+            <div className="flex items-center justify-between gap-md" style={{ flexWrap: 'wrap' }}>
               <div className="flex items-center gap-md">
                 <div
                   style={{
@@ -375,18 +371,43 @@ export const ClaimAnalysis = () => {
                     Extended View: 3D Depth & Surface Inspection <Badge variant="success">Live v3</Badge>
                   </h3>
                   <p className="text-xs text-muted m-0">
-                    Open interactive 2D ΔZ millimeter depth heatmaps, 3D surface deformation mesh, CLAHE glare removal, and DSINE crease analysis.
+                    Inspect interactive 2D ΔZ millimeter depth heatmaps, 3D surface deformation mesh, CLAHE glare removal, and DSINE crease analysis.
                   </p>
                 </div>
               </div>
-              <span
-                className="btn btn-primary btn-sm"
-                style={{ whiteSpace: 'nowrap', borderRadius: '9999px', padding: '0.45rem 0.95rem', fontWeight: 600 }}
-              >
-                Open Extended View ↗
-              </span>
+              <div className="flex items-center gap-sm">
+                <Link
+                  to={`/customer/claims/${claim.backendId || id || claim.id}/mesh`}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    whiteSpace: 'nowrap',
+                    borderRadius: '9999px',
+                    padding: '0.45rem 0.95rem',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Open Extended View (In-App)
+                </Link>
+                <a
+                  href={getCustomerExtendViewUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary btn-sm"
+                  style={{
+                    whiteSpace: 'nowrap',
+                    borderRadius: '9999px',
+                    padding: '0.45rem 0.85rem',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                  title="Open in new tab"
+                >
+                  New Tab ↗
+                </a>
+              </div>
             </div>
-          </a>
+          </div>
 
           {/* Media Galleries */}
           {((claim.images && claim.images.length > 0) || (claim.videos && claim.videos.length > 0)) && (

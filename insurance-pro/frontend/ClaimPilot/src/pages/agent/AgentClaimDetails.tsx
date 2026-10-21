@@ -30,6 +30,7 @@ export const AgentClaimDetails = () => {
   const [mainImage, setMainImage] = useState<string | undefined>();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'damage' | '3d-analysis' | 'fraud'>('overview');
+  const [analysisViewMode, setAnalysisViewMode] = useState<'embedded' | 'cards'>('embedded');
   const [selectedDamage, setSelectedDamage] = useState<DamageArea | null>(null);
   const [advancedData, setAdvancedData] = useState<AdvancedAnalysisData | null>(null);
   const tabPaneRef = useRef<HTMLDivElement>(null);
@@ -191,7 +192,7 @@ export const AgentClaimDetails = () => {
       status === 'failed' ? 'Analysis failed, sent for manual review.' :
         status === 'unavailable' ? 'Not yet available.' : '';
 
-  const getAgentExtendViewUrl = (): string => {
+  const getAgentExtendViewUrl = (embed: boolean = false): string => {
     const baseUrl = (
       import.meta.env?.VITE_AGENT_EXTENDVIEW_URL ||
       import.meta.env?.VITE_EXTENDVIEW_URL ||
@@ -215,6 +216,7 @@ export const AgentClaimDetails = () => {
       role: 'agent',
       claim_id: String(targetClaimId),
     });
+    if (embed) params.set('embed', 'true');
     if (token) params.set('token', token);
     return `${baseUrl}/?${params.toString()}`;
   };
@@ -245,22 +247,23 @@ export const AgentClaimDetails = () => {
         </div>
         {!isClaimDecided ? (
           <div className="flex gap-sm" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-            <a
-              href={getAgentExtendViewUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('3d-analysis');
+                setAnalysisViewMode('embedded');
+              }}
               className="btn-secondary agent-action-btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                textDecoration: 'none',
                 borderColor: 'rgba(5, 150, 105, 0.45)',
                 color: 'var(--text-primary)',
               }}
             >
-              <Box size={15} /> Extended View ↗
-            </a>
+              <Box size={15} /> Extended View (In-App)
+            </button>
             <button className="btn-secondary agent-action-btn" onClick={() => { setActionError(null); setShowRequestInfoModal(true); }}>
               Request Info
             </button>
@@ -273,22 +276,23 @@ export const AgentClaimDetails = () => {
           </div>
         ) : (
           <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
-            <a
-              href={getAgentExtendViewUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('3d-analysis');
+                setAnalysisViewMode('embedded');
+              }}
               className="btn-secondary agent-action-btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                textDecoration: 'none',
                 borderColor: 'rgba(5, 150, 105, 0.45)',
                 color: 'var(--text-primary)',
               }}
             >
-              <Box size={15} /> Extended View ↗
-            </a>
+              <Box size={15} /> Extended View (In-App)
+            </button>
             {claim.status === 'Approved' && (
               <Badge variant="success" style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                 <CheckCircle size={16} /> Approved {claim.approvedAmount ? `· ₹${claim.approvedAmount.toLocaleString()}` : ''}
@@ -618,33 +622,72 @@ export const AgentClaimDetails = () => {
                 <div className="flex justify-between items-center bg-bg-secondary p-4 rounded-md border border-border" style={{ gap: '1rem', flexWrap: 'wrap' }}>
                   <div>
                     <div className="flex items-center gap-sm mb-1">
-                      <h2 className="text-xl font-bold m-0">Advanced 3D Damage Analysis</h2>
+                      <h2 className="text-xl font-bold m-0">Advanced 3D Damage & DSINE Telemetry</h2>
                       <Badge variant="success">v3 Vision Pipeline</Badge>
                     </div>
                     <p className="text-sm text-muted m-0">
-                      Deep learning outputs (YOLOv11m + Depth Anything V2 + SAM2 + DSINE). Launch Extended View for full interactive 2D ΔZ heatmaps, 3D mesh, CLAHE histograms, and DSINE vector telemetry.
+                      Deep learning outputs (YOLOv11m + Depth Anything V2 + SAM2 + DSINE) with 2D ΔZ heatmaps, interactive 3D mesh, CLAHE histograms, and per-instance telemetry.
                     </p>
                   </div>
-                  <div className="flex items-center gap-sm">
+                  <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setAnalysisViewMode('embedded')}
+                      className={analysisViewMode === 'embedded' ? 'btn-success agent-action-btn' : 'btn-secondary agent-action-btn'}
+                      style={{ padding: '0.45rem 0.95rem' }}
+                    >
+                      Interactive Extended Workbench (Embedded)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalysisViewMode('cards')}
+                      className={analysisViewMode === 'cards' ? 'btn-success agent-action-btn' : 'btn-secondary agent-action-btn'}
+                      style={{ padding: '0.45rem 0.95rem' }}
+                    >
+                      Summary Cards
+                    </button>
                     <a
-                      href={getAgentExtendViewUrl()}
+                      href={getAgentExtendViewUrl(false)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="btn-success agent-action-btn"
+                      className="btn-secondary agent-action-btn"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '0.45rem',
+                        gap: '0.4rem',
                         textDecoration: 'none',
-                        padding: '0.5rem 1.15rem',
+                        padding: '0.45rem 0.95rem',
                       }}
                     >
-                      <Box size={16} /> Open Extended View (2D/3D + DSINE + Graphs) ↗
+                      <Box size={15} /> Open Full Tab ↗
                     </a>
                   </div>
                 </div>
 
-                {advancedData ? (
+                {analysisViewMode === 'embedded' ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '860px',
+                      borderRadius: 'var(--radius-md)',
+                      overflow: 'hidden',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: '#0E0E14',
+                    }}
+                  >
+                    <iframe
+                      src={getAgentExtendViewUrl(true)}
+                      title="ClaimPilot Adjuster 3D & DSINE Extended Workbench"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        border: 'none',
+                        backgroundColor: '#0E0E14',
+                      }}
+                      allow="fullscreen"
+                    />
+                  </div>
+                ) : advancedData ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', minHeight: '600px' }}>
                     <div className="flex flex-col gap-lg h-full">
                       <div className="flex-1 min-h-[300px]">

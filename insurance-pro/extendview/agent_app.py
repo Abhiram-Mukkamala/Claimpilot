@@ -18,6 +18,7 @@ Run standalone on Port 8502:
     streamlit run agent_app.py --server.port 8502
 """
 
+import importlib
 import json
 import hashlib
 from datetime import datetime, timezone
@@ -26,6 +27,9 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+import extendview_core
+importlib.reload(extendview_core)
 
 from extendview_core import (
     DEFAULT_REF_MM,
@@ -42,6 +46,7 @@ from extendview_core import (
     download_image_from_url,
     execute_cached_pipeline,
     fetch_live_claim_bundle,
+    fetch_recent_claims_list,
     generate_gemini_inr_estimate,
     inject_claimpilot_theme,
     load_all_models,
@@ -110,24 +115,49 @@ def build_export_payload(
 
 
 def run_agent_extendview(set_page_cfg: bool = True):
+    qp = st.query_params
+    is_embedded = str(qp.get("embed") or "").lower() in ("true", "1", "yes")
+    claim_id = qp.get("claim_id") or qp.get("id") or ""
+    token = qp.get("token") or ""
+
     if set_page_cfg:
         st.set_page_config(
             page_title="ClaimPilot AI | Adjuster 3D & DSINE Telemetry",
             layout="wide",
             page_icon="🔬",
-            initial_sidebar_state="expanded",
+            initial_sidebar_state="collapsed" if is_embedded else "expanded",
         )
 
-    inject_claimpilot_theme()
+    inject_claimpilot_theme(is_embedded=is_embedded)
     metric_model, yolo_model, v2_models = load_all_models()
 
-    qp = st.query_params
-    claim_id = qp.get("claim_id") or qp.get("id") or ""
-    token = qp.get("token") or ""
+    # ---- Sidebar Adjuster Controls ----
+    st.sidebar.markdown("## 🔬 Adjuster Telemetry Controls")
+    st.sidebar.caption("Full 2D/3D Vision, DSINE Normals & Forensic Audit")
+    st.sidebar.markdown("---")
+
+    recent_claims = fetch_recent_claims_list(limit=15)
+    if not claim_id and recent_claims:
+        claim_options = [""] + [str(c.get("id")) for c in recent_claims]
+        claim_labels = {"": "⚡ Select a Live Claim from Supabase..."}
+        for c in recent_claims:
+            cid = str(c.get("id"))
+            cnum = c.get("claim_number") or cid[:8]
+            veh = c.get("vehicle_name") or "Vehicle"
+            st_txt = (c.get("status") or "pending").replace("_", " ").title()
+            claim_labels[cid] = f"{cnum} — {veh} ({st_txt})"
+        selected_cid = st.sidebar.selectbox(
+            "Active Supabase Claim",
+            claim_options,
+            index=1 if len(claim_options) > 1 else 0,
+            format_func=lambda x: claim_labels.get(x, x),
+        )
+        if selected_cid:
+            claim_id = selected_cid
 
     live_bundle = None
     if claim_id:
-        with st.spinner("Fetching live claim, AI telemetry, and fraud analysis from ClaimPilot backend..."):
+        with st.spinner("Fetching live claim, AI telemetry, and fraud analysis from ClaimPilot..."):
             live_bundle = fetch_live_claim_bundle(claim_id, token=token, role="agent")
 
     claim_obj = (live_bundle or {}).get("claim") or {}
@@ -148,12 +178,8 @@ def run_agent_extendview(set_page_cfg: bool = True):
         vehicle_name=vehicle_name,
         status_text=raw_status,
         back_path=back_path,
+        is_embedded=is_embedded,
     )
-
-    # ---- Sidebar Adjuster Controls ----
-    st.sidebar.markdown("## 🔬 Adjuster Telemetry Controls")
-    st.sidebar.caption("Full 2D/3D Vision, DSINE Normals & Forensic Audit")
-    st.sidebar.markdown("---")
 
     engine_options = []
     if v2_models is not None and HAS_V2_PIPELINE:
@@ -176,7 +202,7 @@ def run_agent_extendview(set_page_cfg: bool = True):
     source_options = []
     if photos:
         source_options.append(f"Live Claim Evidence ({len(photos)} photos)")
-    source_options.extend(["Custom Photo Upload", "Interactive Synthetic Preset"])
+    source_options.extend(["Interactive Synthetic Preset", "Custom Photo Upload"])
     input_mode = st.sidebar.radio("Input Source", source_options, index=0)
 
     selected_photo_idx = 0
@@ -232,10 +258,13 @@ def run_agent_extendview(set_page_cfg: bool = True):
     raw_bytes_for_hash = b""
 
     if input_mode.startswith("Live Claim Evidence") and photos:
-        photo_url = photos[selected_photo_idx]["url"]
-        decoded = download_image_from_url(photo_url)
+        photo_item = photos[selected_photo_idx]
+        decoded = download_image_from_url(
+            photo_item.get("url", ""),
+            storage_path=photo_item.get("storage_path", ""),
+        )
         if decoded is None:
-            st.warning("Could not download live claim photo from signed URL; showing synthetic reference scan.")
+            st.warning("Could not download live claim photo from storage; showing synthetic reference scan.")
             bgr_img, depth_map, normal_map, mask, mm_per_px = build_scenario(preset_name, IMG_SIZE, real_mm)
             metrics = compute_metrics(depth_map, normal_map, mask, mm_per_px)
             backend_mode = "Synthetic Fallback (URL Unreachable)"
@@ -257,10 +286,7 @@ def run_agent_extendview(set_page_cfg: bool = True):
                 )
             scenario_label = f"{claim_display_id}_photo_{selected_photo_idx+1}"
 
-    elif input_mode == "Custom Photo Upload":
-        if uploaded_file is None:
-            st.info("👈 Upload a vehicle inspection photo in the sidebar or switch to Live Claim Evidence / Synthetic Preset.")
-            st.stop()
+    elif input_mode == "Custom Photo Upload" and uploaded_file is not None:
         raw_bytes_for_hash = uploaded_file.read()
         imgsz = 640 if cpu_optimized else 1280
         with st.spinner(f"Running {backend_choice} on {uploaded_file.name}..."):
@@ -276,6 +302,8 @@ def run_agent_extendview(set_page_cfg: bool = True):
         scenario_label = uploaded_file.name
 
     else:
+        if input_mode == "Custom Photo Upload" and uploaded_file is None:
+            st.info("👈 Upload a photo in the sidebar to inspect custom evidence, or inspect the interactive 3D telemetry preview below.")
         bgr_img, depth_map, normal_map, mask, mm_per_px = build_scenario(preset_name, IMG_SIZE, real_mm)
         metrics = compute_metrics(depth_map, normal_map, mask, mm_per_px)
         backend_mode = "Interactive Synthetic Preset"
@@ -628,6 +656,8 @@ def run_agent_extendview(set_page_cfg: bool = True):
                 )
                 st.code(payload_str, language="json")
 
+
+main = run_agent_extendview
 
 if __name__ == "__main__":
     run_agent_extendview(set_page_cfg=True)
