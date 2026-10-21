@@ -154,6 +154,34 @@ export const ClaimAnalysis = () => {
     return 'neutral';
   };
 
+  const getCustomerExtendViewUrl = (): string => {
+    const baseUrl = (
+      import.meta.env?.VITE_CUSTOMER_EXTENDVIEW_URL ||
+      import.meta.env?.VITE_EXTENDVIEW_URL ||
+      'http://localhost:8501'
+    ).replace(/\/$/, '');
+    let token = '';
+    try {
+      const authUserStr = sessionStorage.getItem('auth_user') || localStorage.getItem('auth_user');
+      if (authUserStr) {
+        const parsed = JSON.parse(authUserStr);
+        token = parsed.access_token || parsed.token || parsed.session?.access_token || '';
+      }
+      if (!token) {
+        token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token') || '';
+      }
+    } catch {
+      // ignore storage parse error
+    }
+    const targetClaimId = claim?.backendId || id || claim?.id || '';
+    const params = new URLSearchParams({
+      role: 'customer',
+      claim_id: String(targetClaimId),
+    });
+    if (token) params.set('token', token);
+    return `${baseUrl}/?${params.toString()}`;
+  };
+
   if (loading) return <div className="text-muted p-xl text-center">Loading claim details...</div>;
   if (!claim) return <div className="text-muted p-xl text-center">Claim not found.</div>;
 
@@ -311,18 +339,54 @@ export const ClaimAnalysis = () => {
             </Card>
           )}
 
-          {/* 3D Mesh Viewer CTA */}
-          <Link to={`/customer/claims/${id}/mesh`} className="interactive-card block p-md" style={{ background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.1)', textDecoration: 'none', borderRadius: 'var(--radius-md)', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-            <div className="flex items-center gap-md">
-              <div style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '0.8rem', borderRadius: '50%', color: 'var(--text-primary)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                <Box size={24} />
+          {/* Extended View (Streamlit 2D/3D Depth + DSINE) & 3D Mesh Viewer CTAs */}
+          <a
+            href={getCustomerExtendViewUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="interactive-card block p-md"
+            style={{
+              background: 'rgba(5, 150, 105, 0.08)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(5, 150, 105, 0.38)',
+              textDecoration: 'none',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.25)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-md">
+              <div className="flex items-center gap-md">
+                <div
+                  style={{
+                    background: 'rgba(5, 150, 105, 0.2)',
+                    padding: '0.8rem',
+                    borderRadius: '50%',
+                    color: 'var(--accent)',
+                    border: '1px solid rgba(5, 150, 105, 0.35)',
+                  }}
+                >
+                  <Zap size={24} />
+                </div>
+                <div>
+                  <h3
+                    className="text-base font-bold mb-1 m-0 flex items-center gap-sm"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    Extended View: 3D Depth & Surface Inspection <Badge variant="success">Live v3</Badge>
+                  </h3>
+                  <p className="text-xs text-muted m-0">
+                    Open interactive 2D ΔZ millimeter depth heatmaps, 3D surface deformation mesh, CLAHE glare removal, and DSINE crease analysis.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-bold mb-1 m-0 flex items-center gap-sm" style={{ color: 'var(--text-primary)' }}>Explore 3D Damage Mesh <Badge variant="neutral">Beta</Badge></h3>
-                <p className="text-xs text-muted m-0">Click here to view an interactive 3D spatial model of the vehicle damage assessment.</p>
-              </div>
+              <span
+                className="btn btn-primary btn-sm"
+                style={{ whiteSpace: 'nowrap', borderRadius: '9999px', padding: '0.45rem 0.95rem', fontWeight: 600 }}
+              >
+                Open Extended View ↗
+              </span>
             </div>
-          </Link>
+          </a>
 
           {/* Media Galleries */}
           {((claim.images && claim.images.length > 0) || (claim.videos && claim.videos.length > 0)) && (

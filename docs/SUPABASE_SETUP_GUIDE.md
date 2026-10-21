@@ -2,7 +2,7 @@
 
 **Target Audience:** Project Lead / Platform Operator
 **Repository Branch:** `main`
-**Current State (17 October 2026):** Core ClaimPilot schema and private `claim-evidence` bucket are applied to Supabase project `tiwdktgeqifhumcrwniv`; both applied migration versions are recorded. Credentials, Auth email delivery, demo agent/policy seeding, and live end-to-end claim flow still require operator setup and verification.
+**Current State (21 October 2026):** Core ClaimPilot schema (all 4 migrations in `supabase/migrations/` and `migration_v3_phash.sql`) and the `claim-evidence` bucket definition were applied to Supabase project `sjokskemaonnvbqlnbdz` on 21 Oct 2026. Verification of RLS and bucket privacy is **UNVERIFIED**; credentials, Auth email delivery, demo agent/policy seeding, and live end-to-end claim flow still require operator setup and verification.
 **Objective:** Provide a verified, reproducible execution order and verification protocol to bring Supabase, authentication, storage, and fraud engine into a verified operational state without hardcoding or leaking credentials.
 
 ---
@@ -13,12 +13,12 @@ Before executing any commands, understand the boundary between checked-in reposi
 
 | Component | Repository Fact (Verified by Code Inspection) | Remote Operator State (Must Be Verified in Supabase) |
 |---|---|---|
-| **Base Schema** | Versioned migration `supabase/migrations/20261016194212_claimpilot_core_schema.sql` defines the core types, eight application tables, indexes, and service-role-only grants. | **Verified on 17 Oct 2026.** Eight ClaimPilot tables exist with RLS enabled; app tables have no `anon`/`authenticated` grants. |
-| **Schema Refinements** | The canonical migration includes city/state/pincode, amount, private storage-path, and OTP purpose/identity fields. A follow-up migration adds `claims.settlement_offer_amount` for the current agent approval route. | **Verified on 17 Oct 2026.** Required columns are present. The legacy `schema.sql`/`migration_v2.sql` are historical compatibility references; do not apply them over the canonical migrations. |
-| **pHash / Fraud Schema** | The canonical migration includes `claim_evidence.phash`, its index, `claim_fraud_analyses`, and AI fraud fields. | **Verified on 17 Oct 2026.** Required tables and columns exist; no real claim/photo has yet been processed against this project. |
+| **Base Schema** | Versioned migration `supabase/migrations/20261016194212_claimpilot_core_schema.sql` defines the core types, eight application tables, indexes, and service-role-only grants. | **Applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026.** Verification of RLS and `anon`/`authenticated` grants is **UNVERIFIED**. |
+| **Schema Refinements** | The canonical migration includes city/state/pincode, amount, private storage-path, and OTP purpose/identity fields. A follow-up migration adds `claims.settlement_offer_amount` for the current agent approval route. | **Applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026.** The legacy `schema.sql`/`migration_v2.sql` are historical compatibility references; do not apply them over the canonical migrations. |
+| **pHash / Fraud Schema** | The canonical migration includes `claim_evidence.phash`, its index, `claim_fraud_analyses`, and AI fraud fields. | **Applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026** (including `migration_v3_phash.sql`). No real claim/photo has yet been processed against this project. |
 | **Policy Seed** | `agent_policies` and `policies` exist in the canonical schema; demo records have not been seeded. | **Pending.** Register/verify the demo agent first, then seed only policy mappings for that real profile. Review `seed_demo.sql` first; do not add broad `USING (true)` client read policies because the backend-only design denies direct client table access. |
-| **Storage Bucket** | Backend uses `SUPABASE_STORAGE_BUCKET="claim-evidence"` and private paths `evidence/{category}/{user_id}/...`. The versioned migration creates a private bucket with a 50 MB limit and the expected MIME allow-list. | **Verified on 17 Oct 2026.** Bucket exists and `public=false`; live signed upload/read operations remain to be exercised. |
-| **Backend PostgREST Client** | `app/db/supabase.py` uses the service-role key for server-side PostgREST/storage operations; browser clients call FastAPI. | **Verified grants:** the service role has table privileges; `anon` and `authenticated` have no direct privileges on ClaimPilot tables. RLS is enabled and there are intentionally no direct-client table policies under this backend-only design. |
+| **Storage Bucket** | Backend uses `SUPABASE_STORAGE_BUCKET="claim-evidence"` and private paths `evidence/{category}/{user_id}/...`. The versioned migration creates a private bucket with a 50 MB limit and the expected MIME allow-list. | **Applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026.** Bucket privacy (`public=false`) and live signed upload/read operations are **UNVERIFIED**. |
+| **Backend PostgREST Client** | `app/db/supabase.py` uses the service-role key for server-side PostgREST/storage operations; browser clients call FastAPI. | **UNVERIFIED on live project:** migrations grant table privileges to `service_role` and revoke `anon`/`authenticated` grants with RLS enabled, but live RLS and grant state is **UNVERIFIED**. |
 | **Backend JWT Secret** | `app/core/security.py` signs and verifies application session tokens and email action links using `JWT_SECRET`. | **Separate from Supabase JWT secret.** The backend JWT secret must be an independently generated random 256-bit key. |
 
 ---
@@ -425,10 +425,10 @@ WHERE claim_id = '<paste-claim-B-uuid>';
 
 Before declaring the deployment ready for the frontend demonstration, verify every box:
 
-- [x] **Supabase Health:** Project `tiwdktgeqifhumcrwniv` is active in region `ap-south-1`.
-- [x] **Storage Bucket:** `claim-evidence` exists as a **Private** bucket, permits 50 MB files, and has the configured image/video MIME allow-list. Real signed upload/read operations still need an end-to-end check.
-- [x] **SQL Schemas:** the three versioned migrations in `supabase/migrations/` are recorded in the connected project. Do not apply legacy `schema.sql`, `migration_v2.sql`, or `migration_v3_phash.sql` on top.
-- [x] **Schema Check:** eight core tables and critical columns verified; bucket reports `public=false` and `anon`/`authenticated` have no direct table grants. RLS is enabled on app tables.
+- [x] **Supabase Health:** Project `sjokskemaonnvbqlnbdz` is active in region `ap-south-1`.
+- [ ] **Storage Bucket (UNVERIFIED):** `claim-evidence` bucket definition applied on 21 Oct 2026; bucket privacy (`public=false`), 50 MB limit, MIME allow-list, and real signed upload/read operations remain **UNVERIFIED**.
+- [x] **SQL Schemas:** all four versioned migrations in `supabase/migrations/` and `migration_v3_phash.sql` were applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026.
+- [ ] **Schema Check (UNVERIFIED):** schema applied on 21 Oct 2026; verification of RLS (`anon`/`authenticated` table grant revocation) and bucket privacy (`public=false`) is **UNVERIFIED**.
 - [ ] **Secret Hygiene:** `insurance-pro/backend/.env` created from `.env.example`; `.env` is confirmed in `.gitignore`.
 - [ ] **Dedicated JWT Secret:** Independent 256-bit `JWT_SECRET` generated and loaded by backend.
 - [ ] **Agent Registered:** Agent profile created in `public.profiles`.

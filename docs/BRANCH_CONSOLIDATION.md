@@ -39,15 +39,15 @@ The deployment repository now keeps only the connected frontend under `insurance
 
 Commit: `5724e85085ea3f981a6fed9382e347786b9f8997` (`feat(ui): port Ayaan onboarding and about page design`). This ports the About page design and its stylesheet, the six-step onboarding UI and state store, and the CustomerLayout wiring. The onboarding auto-trigger tracks completion per user/email rather than letting one user's global completion flag suppress onboarding for everyone. A follow-up review found and fixed per-user completion persistence (auth user storage location and legacy key normalization), the About page's team-section navigation target, and onboarding modal focus/background-scroll accessibility plus correct semantics for step-jump controls in commits `12f8c78f7dd9143ca2fb53f05ced60f22d55379c`, `a0fbc909ae9fb275f0bd1ca1366d27a2246cc4de`, `e9f4bea8cbe8eb5ae817c08b5e1dd5f770b84e58`, and `c9307de4a9869765596b8cbe1402d5c44603b5c5`. The existing `claimsApi.ts`, `authStore.ts`, `Login.tsx`, backend claim/agent endpoints, and smoke-test runner were not changed by the UI port or these fixes. The onboarding modal now traps keyboard focus, restores focus on close, and locks background scrolling. Backend/schema regression tests are now green in CI: 146 passed, 10 warnings. The frontend TypeScript/production build and live hosted end-to-end flow remain to be run.
 
-## Supabase integration applied on 17 October 2026
+## Supabase integration applied on 21 October 2026
 
-Connected project: `tiwdktgeqifhumcrwniv` (`ap-south-1`). The database's remote migration history matches these checked-in files:
+Connected project: `sjokskemaonnvbqlnbdz` (`ap-south-1`). All 4 migrations in `supabase/migrations/` and `migration_v3_phash.sql` were applied to the new project on 21 Oct 2026:
 
 - `supabase/migrations/20261016194212_claimpilot_core_schema.sql`
 - `supabase/migrations/20261016194327_claim_settlement_offer_compat.sql`
 - `supabase/migrations/20261016195154_claimpilot_fk_indexes.sql`
 
-The eight application tables are present with RLS enabled and no direct table grants to `anon` or `authenticated`; the API uses the service-role key only on the backend. `claim-evidence` is private with a 50 MB limit and the intended image/video MIME allow-list. The starter `public.tasks` client grants and execute grants on `public.rls_auto_enable()` were revoked. No demo users, policy records, claims, or evidence were inserted.
+The schema and `claim-evidence` bucket definitions were applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026; verification of RLS (`anon`/`authenticated` table grant revocation) and `claim-evidence` bucket privacy is **UNVERIFIED**. The API uses the service-role key only on the backend. No demo users, policy records, claims, or evidence were inserted.
 
 `insurance-pro/backend/seed_demo.sql` was revised to rely on the canonical schema, require a real agent profile, and avoid broad `USING (true)` policies. Run it only after registering the agent and replacing its placeholder email.
 

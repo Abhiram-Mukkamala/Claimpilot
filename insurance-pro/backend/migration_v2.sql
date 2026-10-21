@@ -1,7 +1,7 @@
 -- ==========================================================
 -- ClaimPilot Migration Script: v2.0 (OTP & Schema Refinements)
 -- Execute this in your Supabase SQL Editor:
--- https://supabase.com/dashboard/project/zegygoxpmnxpdhutdpqf/sql
+-- https://supabase.com/dashboard/project/sjokskemaonnvbqlnbdz/sql
 -- ==========================================================
 
 -- Extensions & ENUMs

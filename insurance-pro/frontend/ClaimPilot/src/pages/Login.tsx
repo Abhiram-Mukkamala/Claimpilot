@@ -5,6 +5,7 @@ import { authApi, authOtpApi } from '../services/claimsApi';
 import { useGSAP, animateFadeIn, animateStagger, isReducedMotion, gsap } from '../lib/gsap';
 import { About } from './About';
 import { AlertCircle } from 'lucide-react';
+import { PrivacyPolicyModal } from '../components/legal/PrivacyPolicyModal';
 
 export type TransitionState = 'idle' | 'enteringAbout' | 'about' | 'returningToLogin';
 
@@ -12,6 +13,7 @@ export type TransitionState = 'idle' | 'enteringAbout' | 'about' | 'returningToL
 export const Login: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [transitionState, setTransitionState] = useState<TransitionState>('idle');
   const [activeSection, setActiveSection] = useState('hero');
 
@@ -961,6 +963,29 @@ export const Login: React.FC = () => {
               </p>
             </div>
 
+            <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyPolicy(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  padding: '0.25rem 0.5rem',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: '3px',
+                  transition: 'color 0.2s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+              >
+                Privacy Policy
+              </button>
+            </div>
+
             {!isSignUp && (
               <div style={{
                 marginTop: '2rem',
@@ -1135,6 +1160,11 @@ export const Login: React.FC = () => {
           </div>
         </div>
       )}
+
+      <PrivacyPolicyModal
+        isOpen={showPrivacyPolicy}
+        onClose={() => setShowPrivacyPolicy(false)}
+      />
     </>
   );
 };

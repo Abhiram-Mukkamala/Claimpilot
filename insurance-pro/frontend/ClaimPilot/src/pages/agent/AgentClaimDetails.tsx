@@ -191,6 +191,34 @@ export const AgentClaimDetails = () => {
       status === 'failed' ? 'Analysis failed, sent for manual review.' :
         status === 'unavailable' ? 'Not yet available.' : '';
 
+  const getAgentExtendViewUrl = (): string => {
+    const baseUrl = (
+      import.meta.env?.VITE_AGENT_EXTENDVIEW_URL ||
+      import.meta.env?.VITE_EXTENDVIEW_URL ||
+      'http://localhost:8502'
+    ).replace(/\/$/, '');
+    let token = '';
+    try {
+      const authUserStr = sessionStorage.getItem('auth_user') || localStorage.getItem('auth_user');
+      if (authUserStr) {
+        const parsed = JSON.parse(authUserStr);
+        token = parsed.access_token || parsed.token || parsed.session?.access_token || '';
+      }
+      if (!token) {
+        token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token') || '';
+      }
+    } catch {
+      // ignore storage parse error
+    }
+    const targetClaimId = claim?.backendId || id || claim?.id || '';
+    const params = new URLSearchParams({
+      role: 'agent',
+      claim_id: String(targetClaimId),
+    });
+    if (token) params.set('token', token);
+    return `${baseUrl}/?${params.toString()}`;
+  };
+
   if (loading) return <div className="text-muted p-xl text-center">Loading workspace...</div>;
   if (!claim) return <div className="text-muted p-xl text-center">Claim not found.</div>;
 
@@ -216,7 +244,23 @@ export const AgentClaimDetails = () => {
           </div>
         </div>
         {!isClaimDecided ? (
-          <div className="flex gap-sm">
+          <div className="flex gap-sm" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+            <a
+              href={getAgentExtendViewUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary agent-action-btn"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                textDecoration: 'none',
+                borderColor: 'rgba(5, 150, 105, 0.45)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <Box size={15} /> Extended View ↗
+            </a>
             <button className="btn-secondary agent-action-btn" onClick={() => { setActionError(null); setShowRequestInfoModal(true); }}>
               Request Info
             </button>
@@ -228,7 +272,23 @@ export const AgentClaimDetails = () => {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-sm">
+          <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
+            <a
+              href={getAgentExtendViewUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary agent-action-btn"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                textDecoration: 'none',
+                borderColor: 'rgba(5, 150, 105, 0.45)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <Box size={15} /> Extended View ↗
+            </a>
             {claim.status === 'Approved' && (
               <Badge variant="success" style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                 <CheckCircle size={16} /> Approved {claim.approvedAmount ? `· ₹${claim.approvedAmount.toLocaleString()}` : ''}
@@ -279,6 +339,16 @@ export const AgentClaimDetails = () => {
             >
               <AlertTriangle size={14} /> Fraud Analysis
             </button>
+            <a
+              href={getAgentExtendViewUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tab-btn"
+              style={{ marginLeft: 'auto', color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+              title="Open Full 2D Heatmaps, DSINE Surface Normals & Telemetry Graphs in Extended View"
+            >
+              <Box size={14} /> Extended View (DSINE &amp; 3D Graphs) ↗
+            </a>
           </div>
 
           {/* Tab Content */}
@@ -304,7 +374,7 @@ export const AgentClaimDetails = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
                           Approved Payout: <strong>₹{claim.approvedAmount?.toLocaleString() || 'N/A'}</strong>
-                          {claim.engineerEstimate ? ` · Engineer Estimate: ₹${claim.engineerEstimate.toLocaleString()}` : ''}
+                          {claim.engineerEstimate ? ` · Engineer Estimate: ₹{claim.engineerEstimate.toLocaleString()}` : ''}
                         </p>
                         {claim.approveReason && (
                           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
@@ -545,12 +615,33 @@ export const AgentClaimDetails = () => {
 
             {activeTab === '3d-analysis' && (
               <div className="flex flex-col gap-lg">
-                <div className="flex justify-between items-center bg-bg-secondary p-4 rounded-md border border-border">
+                <div className="flex justify-between items-center bg-bg-secondary p-4 rounded-md border border-border" style={{ gap: '1rem', flexWrap: 'wrap' }}>
                   <div>
-                    <h2 className="text-xl font-bold mb-1">Advanced 3D Damage Analysis</h2>
-                    <p className="text-sm text-muted">Deep learning model outputs for incident reconstruction.</p>
+                    <div className="flex items-center gap-sm mb-1">
+                      <h2 className="text-xl font-bold m-0">Advanced 3D Damage Analysis</h2>
+                      <Badge variant="success">v3 Vision Pipeline</Badge>
+                    </div>
+                    <p className="text-sm text-muted m-0">
+                      Deep learning outputs (YOLOv11m + Depth Anything V2 + SAM2 + DSINE). Launch Extended View for full interactive 2D ΔZ heatmaps, 3D mesh, CLAHE histograms, and DSINE vector telemetry.
+                    </p>
                   </div>
-                  <Badge variant="warning">BETA FEATURE</Badge>
+                  <div className="flex items-center gap-sm">
+                    <a
+                      href={getAgentExtendViewUrl()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-success agent-action-btn"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        textDecoration: 'none',
+                        padding: '0.5rem 1.15rem',
+                      }}
+                    >
+                      <Box size={16} /> Open Extended View (2D/3D + DSINE + Graphs) ↗
+                    </a>
+                  </div>
                 </div>
 
                 {advancedData ? (

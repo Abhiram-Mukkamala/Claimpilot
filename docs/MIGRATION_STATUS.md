@@ -66,18 +66,18 @@ The remaining branch-specific changes listed in `docs/BRANCH_CONSOLIDATION.md` r
 - Other feature-branch work and the separate local security changes still need review. Do not declare the release ready until those items are resolved and the end-to-end workflow passes.
 
 
-## Supabase integration (17 October 2026)
+## Supabase integration (21 October 2026)
 
-The connected Supabase project `tiwdktgeqifhumcrwniv` (Mumbai region, `ap-south-1`) now has the versioned ClaimPilot schema applied. Remote migration history was verified against the files in `supabase/migrations/`:
+The connected Supabase project `sjokskemaonnvbqlnbdz` (Mumbai region, `ap-south-1`) had the ClaimPilot schema applied on 21 Oct 2026 (all 4 migrations in `supabase/migrations/` and `migration_v3_phash.sql`):
 
 - `20261016194212_claimpilot_core_schema.sql` — profiles, OTPs, claims, evidence, AI analysis, fraud analysis, policy mappings, enums, indexes, RLS, service-role privileges, and the private `claim-evidence` bucket.
 - `20261016194327_claim_settlement_offer_compat.sql` — compatibility column used by the current agent approval handler.
 - `20261016195154_claimpilot_fk_indexes.sql` — indexes for OTP-user and policy-agent foreign keys.
 
-Live verification confirms all eight ClaimPilot tables exist, RLS is enabled, and `anon`/`authenticated` have no table grants on ClaimPilot tables or the starter `public.tasks` table. The `claim-evidence` bucket is private, has a 50 MB limit, and permits the configured image/video MIME types. No test customer, agent, claim, evidence, or policy data has been seeded into Supabase.
+The schema and `claim-evidence` bucket definitions were applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026. Verification of RLS (`anon`/`authenticated` table grant revocation) and `claim-evidence` bucket privacy is **UNVERIFIED**. No test customer, agent, claim, evidence, or policy data has been seeded into Supabase.
 
 ### Regression tests in the destination repository
 
 The destination includes the existing authorization claim-flow, deterministic demo smoke, smoke-runner, AI-runner, sensitive-logging, JWT/security-hardening, and backend security-regression suites. OTP tests were expanded to assert stored purpose/user binding and reject mismatched bindings; the smoke OTP fixture was aligned with those fields. `test_supabase_schema_contract.py` checks the versioned schema, RLS/client grants, private bucket, settlement compatibility, and foreign-key indexes. The repository contains 106 test functions across the eight inventoried suites; parametrized cases produce 146 collected pytest cases.
 
-**Execution status:** The live schema is verified, and the backend/schema regression suite passed twice in GitHub Actions (146 passed, 10 warnings; latest run used Node 24-compatible actions). CI uses dummy credentials and mocked dependencies, so it did not touch live claim/user data. Remaining operational steps: configure real backend environment variables without committing secrets, verify Supabase Auth email/SMS delivery, register an actual demo agent and customer, run the safe demo-policy seed with the real agent email, then exercise signed evidence upload/read and the hosted end-to-end claim journey. Frontend TypeScript/production build remains to be run.
+**Execution status:** The schema was applied to `sjokskemaonnvbqlnbdz` on 21 Oct 2026 (verification of RLS and bucket privacy **UNVERIFIED**), and the backend/schema regression suite passed twice in GitHub Actions (146 passed, 10 warnings; latest run used Node 24-compatible actions). CI uses dummy credentials and mocked dependencies, so it did not touch live claim/user data. Remaining operational steps: configure real backend environment variables without committing secrets, verify RLS and bucket privacy, verify Supabase Auth email/SMS delivery, register an actual demo agent and customer, run the safe demo-policy seed with the real agent email, then exercise signed evidence upload/read and the hosted end-to-end claim journey. Frontend TypeScript/production build remains to be run.

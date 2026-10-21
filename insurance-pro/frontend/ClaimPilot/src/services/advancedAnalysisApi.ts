@@ -73,7 +73,7 @@ export const advancedAnalysisApi = {
             },
             deformation: {
               minMm: 0,
-              maxMm: Number(aiData.relative_deformation_z?.max_indentation_mm || 0),
+              maxMm: Number(aiData.relative_deformation_z?.max_indentation_mm || aiData.relative_deformation_z?.max_depth_mm || 0),
               depthMap: aiData.relative_deformation_z?.depth_map_url || ''
             },
             dsine: {

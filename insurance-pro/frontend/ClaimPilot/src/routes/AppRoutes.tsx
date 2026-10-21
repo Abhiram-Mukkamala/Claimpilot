@@ -16,6 +16,7 @@ import { AgentDashboard } from '../pages/agent/AgentDashboard';
 import { AgentClaims } from '../pages/agent/AgentClaims';
 import { AgentClaimDetails } from '../pages/agent/AgentClaimDetails';
 import { About } from '../pages/About';
+import { PrivacyPolicyPage } from '../pages/PrivacyPolicyPage';
 import { NotFound } from '../pages/NotFound';
 
 const ProtectedRoute = ({ children, allowedRole }: { children: React.ReactNode, allowedRole: 'customer' | 'agent' }) => {
@@ -38,6 +39,8 @@ export const AppRoutes = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/about" element={<About />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
         {/* Customer Portal */}
         <Route path="/customer" element={

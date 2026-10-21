@@ -1,16 +1,16 @@
 # ClaimPilot — Supabase Runtime Connection
 
-**Updated:** 17 October 2026  
+**Updated:** 21 October 2026  
 **Scope:** Runtime connection and deployment verification; not a schema migration.
 
 ## Current project
 
-- Supabase project: `tiwdktgeqifhumcrwniv`
+- Supabase project: `sjokskemaonnvbqlnbdz`
 - Region: `ap-south-1` (Mumbai)
-- Project URL: `https://tiwdktgeqifhumcrwniv.supabase.co`
-- The live project is active. The eight ClaimPilot application tables exist, RLS is enabled, and four versioned migrations are recorded.
-- `anon` and `authenticated` have no direct table privileges on the ClaimPilot tables. Application data access is through FastAPI and its backend-only service-role key. Do not add client table grants just to remove the RLS-without-policies advisor notice.
-- The `claim-evidence` Storage bucket is private. The live app tables currently have no demo records; no test users/claims/evidence were seeded.
+- Project URL: `https://sjokskemaonnvbqlnbdz.supabase.co`
+- The schema (all four versioned migrations in `supabase/migrations/` and `migration_v3_phash.sql`) was applied to the new project on 21 Oct 2026. Live verification of RLS and `claim-evidence` bucket privacy is **UNVERIFIED**.
+- `anon` and `authenticated` have no direct table privileges on the ClaimPilot tables in the migration definitions (live grant/RLS state **UNVERIFIED**). Application data access is through FastAPI and its backend-only service-role key. Do not add client table grants just to remove the RLS-without-policies advisor notice.
+- The `claim-evidence` Storage bucket migration was applied on 21 Oct 2026 (live bucket privacy **UNVERIFIED**). The live app tables currently have no demo records; no test users/claims/evidence were seeded.
 
 ## Application connection model
 
@@ -22,7 +22,7 @@ The backend uses the Supabase URL and server-side keys from its environment. Cla
 
 Configure these in `insurance-pro/backend/.env` for local runs, or in the backend host's secret/environment settings for deployment:
 
-- `SUPABASE_URL=https://tiwdktgeqifhumcrwniv.supabase.co`
+- `SUPABASE_URL=https://sjokskemaonnvbqlnbdz.supabase.co`
 - `SUPABASE_ANON_KEY` — the project's anon/publishable key required by the current backend settings.
 - `SUPABASE_SERVICE_ROLE_KEY` — required for backend database, Auth admin and private Storage operations; **backend only, never a Vite variable**.
 - `JWT_SECRET` — independent random secret for ClaimPilot's own API JWTs; do not reuse Supabase keys.

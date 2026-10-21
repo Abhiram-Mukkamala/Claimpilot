@@ -11,7 +11,26 @@ from app.services.evidence_storage import canonical_evidence_path
 from app.services.cost_estimator import estimate_damage_costs
 from app.services.fraud_analysis_service import PhashColumnMissingError, analyze_fraud
 
+# Optional vision pipeline (SAM2 + DSINE + depth). Loaded lazily; the
+# existing YOLO/RT-DETR pipeline works without it. Import is wrapped so a
+# missing vision dependency never breaks module import.
+try:
+    from app.services.vision.vision_pipeline import (
+        extract_vision_summary_for_db,
+        run_vision_pipeline,
+    )
+    _VISION_AVAILABLE = True
+except Exception:  # ImportError, missing torch/transformers, etc.
+    run_vision_pipeline = None  # type: ignore[assignment]
+    extract_vision_summary_for_db = None  # type: ignore[assignment]
+    _VISION_AVAILABLE = False
+
 logger = logging.getLogger("claimpilot.ai_runner")
+
+# Vision device: default to CPU. Override via VISION_DEVICE env var if CUDA is available.
+_VISION_DEVICE = os.getenv("VISION_DEVICE", "cpu")
+# Set VISION_PIPELINE_ENABLED=false to skip the vision stage entirely.
+_VISION_ENABLED = os.getenv("VISION_PIPELINE_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL_WEIGHTS_PATH = BASE_DIR / "models" / "weights" / "best.pt"
@@ -192,6 +211,7 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
 
     downloaded_count = 0
     successful_inferences = 0
+    vision_results: List[Dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp_dir:
         for idx, (evidence, storage_path) in enumerate(photo_evidence[:10]):
             try:
@@ -292,6 +312,40 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
             if image_inference_succeeded:
                 successful_inferences += 1
 
+            # --- Optional vision pipeline: SAM2 segmentation + DSINE normals + depth ---
+            # Runs per image after detection. Degrades gracefully if vision models
+            # are unavailable or any stage fails; never breaks the claim flow.
+            image_damages = detected_damages[image_damage_count:]
+            if image_inference_succeeded and image_damages and _VISION_AVAILABLE and _VISION_ENABLED:
+                try:
+                    # Vision pipeline expects bbox_xyxy in absolute pixels;
+                    # ai_runner stores them under _estimator_bbox_xyxy.
+                    vision_detections = []
+                    for dmg in image_damages:
+                        vd = dict(dmg)
+                        vd["bbox_xyxy"] = dmg.get("_estimator_bbox_xyxy", [0, 0, 0, 0])
+                        vd["class_name"] = dmg.get("_estimator_class_name", "unknown")
+                        vision_detections.append(vd)
+                    vision_result = run_vision_pipeline(
+                        local_photo_path,
+                        vision_detections,
+                        device=_VISION_DEVICE,
+                        plate_bbox=None,  # auto-detect via Haar cascade
+                        plate_width_mm=520.0,
+                    )
+                    vision_results.append(vision_result)
+                    # Merge JSON-safe per-instance measurements back into the damage dicts.
+                    for dmg, inst in zip(image_damages, vision_result.get("instances", [])):
+                        for key in (
+                            "mask_iou_score", "area_px", "area_cm2", "crease_angle_deg",
+                            "crease_status", "max_depth_mm", "max_indentation_mm",
+                        ):
+                            dmg[key] = inst.get(key)
+                        if inst.get("stage_errors"):
+                            dmg.setdefault("vision_stage_errors", {}).update(inst["stage_errors"])
+                except Exception as exc:
+                    logger.warning("Vision pipeline failed for claim evidence (%s)", type(exc).__name__)
+
     if downloaded_count == 0:
         return await _mark_analysis_failed(
             claim_id,
@@ -312,6 +366,17 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     estimate_basis = cost_estimate["estimate_basis"]
     primary_image_url = photo_evidence[0][1]
 
+    # Aggregate vision results across all processed images. The summary is a
+    # flat JSON-safe dict; it never contains numpy arrays.
+    vision_db_fields: Dict[str, Any] = {}
+    if _VISION_AVAILABLE and vision_results:
+        try:
+            vision_db_fields = extract_vision_summary_for_db(vision_results) or {}
+        except Exception as exc:
+            logger.warning("Could not summarize vision results (%s)", type(exc).__name__)
+            vision_db_fields = {}
+    crease_angle = vision_db_fields.get("crease_angle_deg")
+
     analysis_payload = {
         "claim_id": claim_id,
         "analysis_status": "completed",
@@ -323,13 +388,28 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         # claim_ai_analysis has clahe_image_url but no image_url column.
         "clahe_image_url": primary_image_url,
         "segmentation_masks": {
-            "mask_count": len(detected_damages),
-            "polygon_density": None,
+            "mask_count": vision_db_fields.get("mask_count") or len(detected_damages),
+            "polygon_density": vision_db_fields.get("mean_mask_iou"),
             "primary_impact_zone": None,
+            "vision_available": _VISION_AVAILABLE and _VISION_ENABLED,
         },
-        "surface_area_px": None,
-        "relative_deformation_z": None,
-        "dsine_vectors": None,
+        # NOT NULL INTEGER column (default 0): never send None.
+        "surface_area_px": int(vision_db_fields.get("surface_area_px") or 0),
+        # claim_ai_analysis has NO top-level vision_calibration column, so the
+        # calibration and indentation live inside this JSONB document.
+        "relative_deformation_z": {
+            "crease_angle_deg": crease_angle,
+            "crease_angle_count": vision_db_fields.get("crease_angle_count", 0),
+            "method": "dsine_surface_normals" if crease_angle is not None else None,
+            "max_indentation_mm": vision_db_fields.get("max_indentation_mm"),
+            "max_depth_mm": vision_db_fields.get("max_depth_mm"),
+            "area_cm2": vision_db_fields.get("area_cm2"),
+            "vision_calibration": vision_db_fields.get("vision_calibration"),
+        },
+        "dsine_vectors": {
+            "available": crease_angle is not None,
+            "mean_crease_angle_deg": crease_angle,
+        },
         "fraud_flags": []
     }
 
