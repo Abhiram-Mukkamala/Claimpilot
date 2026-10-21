@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from ultralytics import YOLO, RTDETR
 from app.core.config import settings
@@ -11,6 +11,16 @@ from app.services.evidence_storage import canonical_evidence_path
 from app.services.cost_estimator import estimate_damage_costs
 from app.services.fraud_analysis_service import PhashColumnMissingError, analyze_fraud
 
+# Optional vision pipeline (SAM2 + DSINE + depth). Loaded lazily; the
+# existing YOLO/RT-DETR pipeline works without it. Import is wrapped so a
+# missing vision dependency never breaks module import.
+try:
+    from app.services.vision import VisionPipeline
+    _VISION_AVAILABLE = True
+except Exception:  # ImportError, missing torch/transformers, etc.
+    VisionPipeline = None  # type: ignore[assignment]
+    _VISION_AVAILABLE = False
+
 logger = logging.getLogger("claimpilot.ai_runner")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,8 +28,12 @@ DEFAULT_MODEL_WEIGHTS_PATH = BASE_DIR / "models" / "weights" / "best.pt"
 YOLO_FALLBACK_WEIGHTS_PATH = BASE_DIR / "models" / "weights" / "yolov11m.pt"
 RTDETR_FALLBACK_WEIGHTS_PATH = BASE_DIR / "models" / "weights" / "rt-detr.pt"
 
+# Vision device: default to CPU. Override via VISION_DEVICE env var if CUDA is available.
+_VISION_DEVICE = os.getenv("VISION_DEVICE", "cpu")
+
 _yolo_model = None
 _rtdetr_model = None
+_vision_pipeline = None
 
 def get_models():
     global _yolo_model, _rtdetr_model
@@ -57,6 +71,25 @@ def get_models():
             logger.warning("Could not load RT-DETR weights (%s)", type(exc).__name__)
 
     return _yolo_model, _rtdetr_model
+
+
+def _get_vision_pipeline() -> Optional[VisionPipeline]:
+    """Lazily create the optional VisionPipeline (SAM2 + DSINE + depth).
+
+    Returns None if vision dependencies are not installed or initialization
+    fails. The pipeline device defaults to CPU unless VISION_DEVICE env var
+    is set to "cuda".
+    """
+    global _vision_pipeline
+    if not _VISION_AVAILABLE or VisionPipeline is None:
+        return None
+    if _vision_pipeline is None:
+        try:
+            _vision_pipeline = VisionPipeline(device=_VISION_DEVICE)
+        except Exception as exc:
+            logger.warning("Could not initialize vision pipeline (%s)", type(exc).__name__)
+            _vision_pipeline = None
+    return _vision_pipeline
 
 
 async def _save_analysis(payload: Dict[str, Any]) -> None:
@@ -292,6 +325,48 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
             if image_inference_succeeded:
                 successful_inferences += 1
 
+            # --- Optional vision pipeline: SAM2 segmentation + DSINE normals + depth ---
+            # Runs per image after detection. Degrades gracefully if vision models
+            # are unavailable or any stage fails; never breaks the claim flow.
+            if image_inference_succeeded and _VISION_AVAILABLE:
+                try:
+                    vision = _get_vision_pipeline()
+                    if vision is not None:
+                        # Damages from this image are the ones appended since image_damage_count.
+                        image_damages = detected_damages[image_damage_count:]
+                        if image_damages:
+                            # Vision pipeline expects bbox_xyxy in absolute pixels;
+                            # ai_runner stores them under _estimator_bbox_xyxy.
+                            vision_detections = []
+                            for dmg in image_damages:
+                                vd = dict(dmg)
+                                vd["bbox_xyxy"] = dmg.get("_estimator_bbox_xyxy", [0, 0, 0, 0])
+                                vision_detections.append(vd)
+                            vision_result = vision.run(
+                                image_path=local_photo_path,
+                                detections=vision_detections,
+                                plate_bbox=None,  # auto-detect via Haar cascade
+                                plate_width_mm=520.0,
+                            )
+                            # Merge per-instance vision results back into damage dicts.
+                            for offset, inst in enumerate(vision_result.get("instances", [])):
+                                if offset < len(image_damages):
+                                    dmg = image_damages[offset]
+                                    dmg["mask_iou_score"] = inst.get("mask_iou_score")
+                                    dmg["area_px"] = inst.get("area_px")
+                                    dmg["area_cm2"] = inst.get("area_cm2")
+                                    dmg["crease_angle_deg"] = inst.get("crease_angle_deg")
+                                    dmg["crease_status"] = inst.get("crease_status")
+                                    if inst.get("stage_errors"):
+                                        dmg.setdefault("vision_stage_errors", {}).update(
+                                            inst["stage_errors"]
+                                        )
+                            # Record vision calibration info on the first damage of this image.
+                            if image_damages and vision_result.get("calibration", {}).get("status") == "calibrated":
+                                image_damages[0]["vision_calibration"] = vision_result["calibration"]
+                except Exception as exc:
+                    logger.warning("Vision pipeline failed for claim evidence (%s)", type(exc).__name__)
+
     if downloaded_count == 0:
         return await _mark_analysis_failed(
             claim_id,
@@ -312,6 +387,33 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
     estimate_basis = cost_estimate["estimate_basis"]
     primary_image_url = photo_evidence[0][1]
 
+    # --- Aggregate vision results across all processed images ---
+    total_surface_area_px = 0
+    any_surface_area = False
+    mask_count = 0
+    mask_iou_scores = []
+    crease_angles = []
+    dsine_normals_summary = {"mean_damage_normal": None, "mean_ring_normal": None}
+    vision_calibration = None
+    for dmg in detected_damages:
+        if dmg.get("area_px") is not None:
+            total_surface_area_px += int(dmg["area_px"])
+            any_surface_area = True
+        if dmg.get("mask_iou_score") is not None:
+            mask_count += 1
+            mask_iou_scores.append(dmg["mask_iou_score"])
+        if dmg.get("crease_angle_deg") is not None:
+            crease_angles.append(dmg["crease_angle_deg"])
+        if dmg.get("vision_calibration") and vision_calibration is None:
+            vision_calibration = dmg["vision_calibration"]
+
+    # DSINE normal vectors: collect from the first damage that has crease info
+    for dmg in detected_damages:
+        if dmg.get("crease_status") == "computed":
+            # We don't store full normal vectors in damage dicts (too large),
+            # but we record that DSINE was used and the crease result.
+            break
+
     analysis_payload = {
         "claim_id": claim_id,
         "analysis_status": "completed",
@@ -323,13 +425,22 @@ async def trigger_ai_assessment(claim_id: str, background: bool = True) -> Dict[
         # claim_ai_analysis has clahe_image_url but no image_url column.
         "clahe_image_url": primary_image_url,
         "segmentation_masks": {
-            "mask_count": len(detected_damages),
-            "polygon_density": None,
+            "mask_count": mask_count,
+            "polygon_density": round(sum(mask_iou_scores) / len(mask_iou_scores), 4) if mask_iou_scores else None,
             "primary_impact_zone": None,
+            "vision_available": _VISION_AVAILABLE,
         },
-        "surface_area_px": None,
-        "relative_deformation_z": None,
-        "dsine_vectors": None,
+        "surface_area_px": total_surface_area_px if any_surface_area else None,
+        "relative_deformation_z": {
+            "crease_angle_deg": round(sum(crease_angles) / len(crease_angles), 2) if crease_angles else None,
+            "crease_angle_count": len(crease_angles),
+            "method": "dsine_surface_normals" if crease_angles else None,
+        },
+        "dsine_vectors": {
+            "available": len(crease_angles) > 0,
+            "mean_crease_angle_deg": round(sum(crease_angles) / len(crease_angles), 2) if crease_angles else None,
+        },
+        "vision_calibration": vision_calibration,
         "fraud_flags": []
     }
 
