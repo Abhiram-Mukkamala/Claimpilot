@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { claimsApi, storageApi } from '../../services/claimsApi';
 import { Card } from '../../components/ui/Card';
-import { Upload, X, ChevronRight, Car, AlertTriangle, Flame, CloudLightning, Video, FileText, CheckCircle2, Loader2 } from 'lucide-react';
+import { Upload, X, ChevronRight, Car, AlertTriangle, Flame, CloudLightning, Video, FileText, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { useGSAP, animateStep, animateFadeIn } from '../../lib/gsap';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
@@ -135,6 +135,53 @@ export const NewClaim = () => {
 
   const handleNext = () => setStep((s) => Math.min(s + 1, 4) as Step);
   const handlePrev = () => setStep((s) => Math.max(s - 1, 1) as Step);
+
+  const handleQuickFillDemo = async () => {
+    setClaimType('Accident');
+    setVehicle('Honda City 1.5 ZX (2023)');
+    setEngineNumber('ENG992188');
+    setChassisNumber('CHS239921');
+    setHsrpNumber('MH12AB9921');
+    setPolicyNumber('DEMO-POL-101');
+    setIncidentDate(new Date().toISOString().split('T')[0]);
+    setLocation('Kharadi IT Park, Wing B, Pune');
+    setDescription('Front bumper impact against concrete pillar while exiting parking bay. Headlamp assembly cracked and bumper torn.');
+    setDriverName('Abhiram Mukkamala');
+    setDriverLicenseNumber('MH1220180012345');
+    setPolicyError('');
+    setHsrpError('');
+    setDlError('');
+
+    try {
+      const loadDemoFile = async (url: string, filename: string): Promise<File> => {
+        const resp = await fetch(url);
+        const blob = await resp.blob();
+        return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+      };
+
+      const dlFront = await loadDemoFile('/demo-assets/pkg1_dl_abhiram.jpg', 'pkg1_dl_abhiram.jpg');
+      setDriverLicenseFrontFile(dlFront);
+      setDriverLicenseFrontPhoto(URL.createObjectURL(dlFront));
+
+      const dlBack = await loadDemoFile('/demo-assets/pkg1_rc_honda_city.jpg', 'pkg1_rc_honda_city.jpg');
+      setDriverLicenseBackFile(dlBack);
+      setDriverLicenseBackPhoto(URL.createObjectURL(dlBack));
+
+      const photo1 = await loadDemoFile('/demo-assets/set3_severe_lamp_collision.jpg', 'set3_severe_lamp_collision.jpg');
+      const photo2 = await loadDemoFile('/demo-assets/set2_moderate_door_crease.jpg', 'set2_moderate_door_crease.jpg');
+      setImages([
+        { file: photo1, previewUrl: URL.createObjectURL(photo1) },
+        { file: photo2, previewUrl: URL.createObjectURL(photo2) }
+      ]);
+
+      setUploadNotice({
+        type: 'success',
+        message: 'Loaded verified demo policy (DEMO-POL-101), driver DL, RC, and 2 damage photos. You can step through and submit!'
+      });
+    } catch (err) {
+      console.error('Failed to load demo files:', err);
+    }
+  };
 
   const checkRateLimit = (): boolean => {
     const now = Date.now();
@@ -668,6 +715,48 @@ export const NewClaim = () => {
           <div ref={stepContainerRef}>
             {step === 1 && (
               <div className="flex flex-col gap-lg">
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'linear-gradient(135deg, rgba(56, 139, 253, 0.12), rgba(139, 92, 246, 0.12))',
+                  border: '1px solid rgba(56, 139, 253, 0.3)',
+                  borderRadius: '10px',
+                  padding: '0.85rem 1.15rem',
+                  gap: '1rem',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <Sparkles size={20} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        Live Showcase Assistant
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        Quick-populate valid policy (DEMO-POL-101), driver DL, RC, and attach sample accident photos
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleQuickFillDemo}
+                    className="btn btn-sm"
+                    style={{
+                      backgroundColor: 'var(--accent-primary)',
+                      color: '#fff',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      padding: '0.45rem 0.9rem',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    ✨ Auto-Fill Demo Package
+                  </button>
+                </div>
+
                 <div>
                   <h2 className="text-xl mb-1">What happened?</h2>
                   <p className="text-muted text-sm">Select the type of incident.</p>

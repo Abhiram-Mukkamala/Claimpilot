@@ -59,6 +59,8 @@ class FakeDatabase:
             return self.analysis if single else [self.analysis]
         if table == "profiles":
             return {"id": "customer-1", "role": "customer"} if single else [{"id": "customer-1"}]
+        if table in ("agent_policies", "policies"):
+            return {"policy_number": params.get("policy_number", "").replace("eq.", ""), "agent_id": "agent-1", "assigned_agent_id": "agent-1"} if single else []
         raise AssertionError(f"Unexpected table {table}")
 
     async def insert(self, table, data):

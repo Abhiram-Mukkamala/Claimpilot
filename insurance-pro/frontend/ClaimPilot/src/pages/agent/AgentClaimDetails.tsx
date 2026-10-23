@@ -7,8 +7,9 @@ import type { DamageAnalysis, FraudAnalysis, DamageArea } from '../../types/anal
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DamageViewer } from '../../components/ui/DamageViewer';
-import { ArrowLeft, User, Phone, CheckCircle, XCircle, AlertTriangle, ShieldCheck, Box, Clock } from 'lucide-react';
+import { ArrowLeft, User, Phone, CheckCircle, XCircle, AlertTriangle, ShieldCheck, Box, Clock, Layers, Video } from 'lucide-react';
 import { advancedAnalysisApi, AdvancedAnalysisData } from '../../services/advancedAnalysisApi';
+import { AgentEvidenceViewer } from '../../components/agent/AgentEvidenceViewer';
 import { InputComparison } from '../../components/analysis/InputComparison';
 import { DamageSegmentation } from '../../components/analysis/DamageSegmentation';
 import { DamageDeformation3D } from '../../components/analysis/DamageDeformation3D';
@@ -29,7 +30,7 @@ export const AgentClaimDetails = () => {
   const [submitting, setSubmitting] = useState(false);
   const [mainImage, setMainImage] = useState<string | undefined>();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'damage' | '3d-analysis' | 'fraud'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'damage' | '3d-analysis' | 'fraud'>('overview');
   const [analysisViewMode, setAnalysisViewMode] = useState<'embedded' | 'cards'>('embedded');
   const [selectedDamage, setSelectedDamage] = useState<DamageArea | null>(null);
   const [advancedData, setAdvancedData] = useState<AdvancedAnalysisData | null>(null);
@@ -211,15 +212,25 @@ export const AgentClaimDetails = () => {
     } catch {
       // ignore storage parse error
     }
-    const targetClaimId = claim?.backendId || id || claim?.id || '';
-    const params = new URLSearchParams({
-      role: 'agent',
-      claim_id: String(targetClaimId),
-    });
+    const targetClaimId = (claim as any)?.backendId || id || claim?.id || '';
+    const params = new URLSearchParams({ role: 'agent', claim_id: String(targetClaimId) });
     if (embed) params.set('embed', 'true');
     if (token) params.set('token', token);
     return `${baseUrl}/?${params.toString()}`;
   };
+
+  const openExtendedViewInApp = () => {
+    setActiveTab('3d-analysis');
+    setAnalysisViewMode('embedded');
+  };
+
+  const extendedViewBtnStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    borderColor: 'rgba(5, 150, 105, 0.45)',
+    color: 'var(--text-primary)',
+  } as const;
 
   if (loading) return <div className="text-muted p-xl text-center">Loading workspace...</div>;
   if (!claim) return <div className="text-muted p-xl text-center">Claim not found.</div>;
@@ -246,22 +257,8 @@ export const AgentClaimDetails = () => {
           </div>
         </div>
         {!isClaimDecided ? (
-          <div className="flex gap-sm" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('3d-analysis');
-                setAnalysisViewMode('embedded');
-              }}
-              className="btn-secondary agent-action-btn"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                borderColor: 'rgba(5, 150, 105, 0.45)',
-                color: 'var(--text-primary)',
-              }}
-            >
+          <div className="flex gap-sm" style={{ flexWrap: 'wrap' }}>
+            <button type="button" onClick={openExtendedViewInApp} className="btn-secondary agent-action-btn" style={extendedViewBtnStyle}>
               <Box size={15} /> Extended View (In-App)
             </button>
             <button className="btn-secondary agent-action-btn" onClick={() => { setActionError(null); setShowRequestInfoModal(true); }}>
@@ -276,21 +273,7 @@ export const AgentClaimDetails = () => {
           </div>
         ) : (
           <div className="flex items-center gap-sm" style={{ flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('3d-analysis');
-                setAnalysisViewMode('embedded');
-              }}
-              className="btn-secondary agent-action-btn"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                borderColor: 'rgba(5, 150, 105, 0.45)',
-                color: 'var(--text-primary)',
-              }}
-            >
+            <button type="button" onClick={openExtendedViewInApp} className="btn-secondary agent-action-btn" style={extendedViewBtnStyle}>
               <Box size={15} /> Extended View (In-App)
             </button>
             {claim.status === 'Approved' && (
@@ -322,6 +305,12 @@ export const AgentClaimDetails = () => {
               onClick={() => setActiveTab('overview')}
             >
               Overview
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'evidence' ? 'active' : ''}`}
+              onClick={() => setActiveTab('evidence')}
+            >
+              <Layers size={14} /> Client Evidence ({(claim.evidence || []).length})
             </button>
             <button
               className={`tab-btn ${activeTab === 'damage' ? 'active' : ''}`}
@@ -378,7 +367,7 @@ export const AgentClaimDetails = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
                           Approved Payout: <strong>₹{claim.approvedAmount?.toLocaleString() || 'N/A'}</strong>
-                          {claim.engineerEstimate ? ` · Engineer Estimate: ₹{claim.engineerEstimate.toLocaleString()}` : ''}
+                          {claim.engineerEstimate ? ` · Engineer Estimate: ₹${claim.engineerEstimate.toLocaleString()}` : ''}
                         </p>
                         {claim.approveReason && (
                           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
@@ -506,11 +495,105 @@ export const AgentClaimDetails = () => {
                     )}
                   </Card>
                 </div>
+
+                {/* Client Uploaded Evidence Summary Card */}
+                <Card style={{ marginTop: '0.5rem', border: '1px solid var(--border)' }}>
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-sm">
+                      <h3 className="text-sm text-muted uppercase font-bold m-0 flex items-center gap-xs">
+                        <Layers size={14} /> Uploaded Client Evidence
+                      </h3>
+                      <Badge variant="neutral">{(claim.evidence || []).length} items</Badge>
+                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                      onClick={() => setActiveTab('evidence')}
+                    >
+                      Open Full Evidence Gallery &rarr;
+                    </button>
+                  </div>
+
+                  {(claim.evidence && claim.evidence.length > 0) ? (
+                    <div className="flex gap-sm overflow-x-auto pb-2">
+                      {claim.evidence.map((item, idx) => {
+                        const isVid = (item.category || '').includes('video');
+                        return (
+                          <div
+                            key={item.id || idx}
+                            onClick={() => setActiveTab('evidence')}
+                            style={{
+                              flexShrink: 0,
+                              width: '110px',
+                              cursor: 'pointer',
+                              borderRadius: 'var(--radius-sm)',
+                              overflow: 'hidden',
+                              border: '1px solid var(--border)',
+                              backgroundColor: 'var(--bg-primary)',
+                              transition: 'transform 0.15s ease',
+                            }}
+                            title={`Click to inspect ${item.category || 'evidence'}`}
+                          >
+                            <div style={{ height: '70px', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {isVid ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Video size={20} color="var(--accent)" />
+                                  <span style={{ fontSize: '0.625rem', color: '#fff' }}>Video</span>
+                                </div>
+                              ) : (
+                                <img src={item.file_url} alt="Evidence" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              )}
+                            </div>
+                            <div style={{ padding: '0.375rem 0.5rem', fontSize: '0.6875rem', color: 'var(--text-secondary)', textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {(item.category || 'Photo').replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted m-0 italic">No evidence uploaded for this claim yet.</p>
+                  )}
+                </Card>
               </div>
             )}
 
+            {activeTab === 'evidence' && (
+              <AgentEvidenceViewer
+                evidence={claim.evidence || []}
+                claimId={claim.id}
+                claimVehicle={claim.vehicle}
+                customerName={claim.customerName}
+                onOpenDamageAnalysis={() => setActiveTab('damage')}
+              />
+            )}
+
             {activeTab === 'damage' && (
-              <div className="flex gap-lg">
+              <div className="flex flex-col gap-md">
+                <div style={{
+                  padding: '0.625rem 1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.8125rem'
+                }}>
+                  <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <Layers size={14} color="var(--accent)" />
+                    Viewing AI damage segmentation. Client submitted <strong>{(claim.evidence || []).length} total evidence files</strong> (including walkaround videos and ID).
+                  </span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                    onClick={() => setActiveTab('evidence')}
+                  >
+                    View All Client Evidence &rarr;
+                  </button>
+                </div>
+
+                <div className="flex gap-lg">
                 <div style={{ flex: 2 }}>
                   <Card style={{ padding: '0.5rem' }}>
                     {damageAnalysis && damageStatus === 'available' ? (
@@ -615,6 +698,7 @@ export const AgentClaimDetails = () => {
                   </Card>
                 </div>
               </div>
+              </div>
             )}
 
             {activeTab === '3d-analysis' && (
@@ -622,7 +706,7 @@ export const AgentClaimDetails = () => {
                 <div className="flex justify-between items-center bg-bg-secondary p-4 rounded-md border border-border" style={{ gap: '1rem', flexWrap: 'wrap' }}>
                   <div>
                     <div className="flex items-center gap-sm mb-1">
-                      <h2 className="text-xl font-bold m-0">Advanced 3D Damage & DSINE Telemetry</h2>
+                      <h2 className="text-xl font-bold m-0">Advanced 3D Damage &amp; DSINE Telemetry</h2>
                       <Badge variant="success">v3 Vision Pipeline</Badge>
                     </div>
                     <p className="text-sm text-muted m-0">
@@ -651,13 +735,7 @@ export const AgentClaimDetails = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn-secondary agent-action-btn"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        textDecoration: 'none',
-                        padding: '0.45rem 0.95rem',
-                      }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', textDecoration: 'none', padding: '0.45rem 0.95rem' }}
                     >
                       <Box size={15} /> Open Full Tab ↗
                     </a>
@@ -678,12 +756,7 @@ export const AgentClaimDetails = () => {
                     <iframe
                       src={getAgentExtendViewUrl(true)}
                       title="ClaimPilot Adjuster 3D & DSINE Extended Workbench"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        border: 'none',
-                        backgroundColor: '#0E0E14',
-                      }}
+                      style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#0E0E14' }}
                       allow="fullscreen"
                     />
                   </div>
@@ -824,8 +897,8 @@ export const AgentClaimDetails = () => {
 
       {/* Modals */}
       {showApproveModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={approveModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={approveModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1rem' }}>Approve Claim</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -847,7 +920,7 @@ export const AgentClaimDetails = () => {
                   setEngineerEstimate(v);
                 }}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Enter engineer estimated cost..."
               />
             </div>
@@ -866,7 +939,7 @@ export const AgentClaimDetails = () => {
                   setApprovedAmount(v);
                 }}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Enter approved payout amount..."
               />
             </div>
@@ -878,7 +951,7 @@ export const AgentClaimDetails = () => {
                 value={approveReason}
                 onChange={e => setApproveReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '80px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '80px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Explain the rationale for this settlement amount..."
               />
             </div>
@@ -918,8 +991,8 @@ export const AgentClaimDetails = () => {
       )}
 
       {showRejectModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={rejectModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={rejectModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.75rem', color: 'var(--danger)' }}>Reject Claim</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -937,7 +1010,7 @@ export const AgentClaimDetails = () => {
                 value={rejectionReason}
                 onChange={e => setRejectionReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Provide clear reasons why this claim was rejected..."
               />
             </div>
@@ -977,8 +1050,8 @@ export const AgentClaimDetails = () => {
       )}
 
       {showRequestInfoModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(2px)' }}>
-          <div ref={requestInfoModalRef} style={{ backgroundColor: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-md)', width: '420px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)', border: '1px solid var(--border-color)' }}>
+        <div className="agent-action-overlay">
+          <div ref={requestInfoModalRef} className="agent-action-modal">
             <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--warning)' }}>Request More Information</h3>
             {actionError && (
               <div role="alert" style={{ padding: '0.625rem 0.875rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--danger)', color: 'var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fontSize: '0.8125rem', marginBottom: '1rem' }}>
@@ -996,7 +1069,7 @@ export const AgentClaimDetails = () => {
                 value={requestInfoReason}
                 onChange={e => setRequestInfoReason(e.target.value)}
                 className="form-input"
-                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                style={{ width: '100%', padding: '0.625rem', minHeight: '110px', resize: 'vertical', borderRadius: 'var(--radius-sm)' }}
                 placeholder="Specify what additional documents, photos, or explanations are needed to process this claim..."
               />
             </div>

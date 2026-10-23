@@ -116,12 +116,13 @@ async def get_current_user(
     
     app_metadata = payload.get("app_metadata", {})
     user_metadata = payload.get("user_metadata", {})
-    role = (
+    raw_role = (
         payload.get("role") 
         or app_metadata.get("role") 
         or user_metadata.get("role") 
         or "customer"
     )
+    role = "customer" if raw_role == "authenticated" else raw_role
     email = payload.get("email") or user_metadata.get("email", "")
 
     return {

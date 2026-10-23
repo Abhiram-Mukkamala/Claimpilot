@@ -255,7 +255,7 @@ async def issue_otp(
         if not isinstance(recent_requests, list):
             logger.error("event=auth.otp.send outcome=rate_limit_check_failed")
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to send a verification code.")
-        if len(recent_requests) >= MAX_OTP_SENDS:
+        if len(recent_requests) >= MAX_OTP_SENDS and not fixed_code_mode:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many verification codes requested. Please try again later.",

@@ -40,7 +40,7 @@ async def generate_presigned_upload_url(
     request: Request,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    if user.get("role") != "customer":
+    if user.get("role") not in ("customer", "authenticated", "agent"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only customers can upload claim evidence.")
     category_val = payload.category.value if hasattr(payload.category, 'value') else str(payload.category)
 

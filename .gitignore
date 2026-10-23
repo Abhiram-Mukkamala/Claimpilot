@@ -55,3 +55,9 @@ skills-lock.json
 *.njsproj
 *.sln
 *.sw?
+
+# IDE & Assistant artifacts
+.gemini/
+*.zip
+backup weights/
+supabase/.temp/
