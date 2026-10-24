@@ -11,7 +11,7 @@ Displays ALL adjuster telemetry, interactive graphs, and forensic audits:
   - DSINE 3D Surface Normal Vectors with Real Sampled Vector Field Needles
   - 3-Tier Scale Calibration Telemetry (Plate / Wheel / Metric Prior) + Stage Latency Graphs
   - Live Fraud Risk Score & Indicators from Supabase (`claim_fraud_analyses`)
-  - Gemini Narrative vs. 3D Physical Severity Consistency Audit
+  - 3D Telemetry Cross-Modal Consistency Audit
   - Official Audit Certificate & JSON Deliverables
 
 Run standalone on Port 8502:
@@ -390,7 +390,7 @@ def run_agent_extendview(set_page_cfg: bool = True):
     tab_vision, tab_instances, tab_fraud, tab_export = st.tabs([
         "🧊 2D/3D Vision & DSINE Telemetry",
         "📊 Per-Instance Analytics & Calibration Graphs",
-        "🛡️ Fraud, EXIF & Gemini Cross-Modal Audit",
+        "🛡️ Fraud, EXIF & Cross-Modal Audit",
         "🧾 Deliverables & Official Certificate",
     ])
 
@@ -570,15 +570,15 @@ def run_agent_extendview(set_page_cfg: bool = True):
 
         with f_col2:
             with st.container(border=True):
-                st.markdown("#### 🤖 Gemini — Narrative vs. 3D Telemetry Audit")
+                st.markdown("#### 🤖 3D Telemetry Analysis")
                 st.caption(
                     "Cross-examines the policyholder's written incident statement against measured 3D dent depth (ΔZ) and DSINE crease angle."
                 )
-                run_gemini_btn = st.button("⚡ Run Gemini Cross-Modal Consistency Audit")
+                run_gemini_btn = st.button("⚡ Audit")
                 gemini_narrative = st.session_state.get(f"gemini_audit_{scenario_label}")
 
                 if run_gemini_btn:
-                    with st.spinner("Auditing incident statement against 3D sensor telemetry via Gemini..."):
+                    with st.spinner("Auditing incident statement against 3D sensor telemetry..."):
                         gemini_narrative = generate_gemini_inr_estimate(
                             bgr_img, metrics, decision, panel_type, user_narrative
                         )
@@ -593,7 +593,7 @@ def run_agent_extendview(set_page_cfg: bool = True):
                         - **Statement:** *"{user_narrative}"*
                         - **Measured Physical Relief:** `{metrics['max_depth_mm']} mm` depth across `{metrics['area_cm2']} cm²` with `{metrics['angle_deg']}°` surface normal crease.
                         - **Triage Recommendation:** **{decision['status']}** — `{decision['action']}` (Benchmark: **₹{decision['cost']:,} INR** on `{panel_type}`).
-                        *(Click the button above to run the live Gemini consistency audit.)*
+                        *(Click the button above to run the live consistency audit.)*
                         """
                     )
 
