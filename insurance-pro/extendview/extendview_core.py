@@ -37,7 +37,7 @@ try:
 except ImportError:
     HAS_YOLO = False
 
-# Optional Gemini SDK (reads GEMINI_API_KEY strictly from environment / .env)
+# Optional Gemini SDK (reads FRAUD_LLM_API_KEY / GEMINI_API_KEY / GOOGLE_API_KEY strictly from environment / .env)
 HAS_GEMINI = False
 GEMINI_SDK = None
 try:
@@ -104,7 +104,11 @@ def _load_env_config() -> Dict[str, str]:
             except Exception:
                 pass
 
-    for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "CLAIMPILOT_API_BASE_URL", "CLAIMPILOT_FRONTEND_URL"):
+    for k in (
+        "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY",
+        "FRAUD_LLM_API_KEY", "FRAUD_LLM_MODEL", "AI_AUDIT_MODEL", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "CLAIMPILOT_API_BASE_URL", "CLAIMPILOT_FRONTEND_URL",
+    ):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
         else:
@@ -1391,6 +1395,20 @@ def plot_stage_timing_chart(v2_report: Dict[str, Any]) -> Optional[go.Figure]:
 # ---------------------------------------------------------------------------
 # GEMINI NARRATIVE AUDIT (ENVIRONMENT KEY ONLY — NO HARDCODED KEYS)
 # ---------------------------------------------------------------------------
+DEFAULT_AUDIT_MODEL = "gemini-3.8-flash"
+
+
+def _resolve_audit_model() -> str:
+    """AI_AUDIT_MODEL wins; otherwise reuse FRAUD_LLM_MODEL only if it names a Gemini model."""
+    explicit = (_ENV_CFG.get("AI_AUDIT_MODEL") or "").strip()
+    if explicit:
+        return explicit
+    shared = (_ENV_CFG.get("FRAUD_LLM_MODEL") or "").strip()
+    if shared.lower().startswith("gemini"):
+        return shared
+    return DEFAULT_AUDIT_MODEL
+
+
 def generate_gemini_inr_estimate(
     bgr_img: np.ndarray,
     metrics: Dict[str, Any],
@@ -1399,9 +1417,15 @@ def generate_gemini_inr_estimate(
     user_narrative: str,
     api_key: Optional[str] = None,
 ) -> Optional[str]:
-    resolved_key = api_key or _ENV_CFG.get("GEMINI_API_KEY") or _ENV_CFG.get("GOOGLE_API_KEY")
+    resolved_key = (
+        api_key
+        or _ENV_CFG.get("FRAUD_LLM_API_KEY")
+        or _ENV_CFG.get("GEMINI_API_KEY")
+        or _ENV_CFG.get("GOOGLE_API_KEY")
+    )
     if not resolved_key or not HAS_GEMINI:
         return None
+    model_name = _resolve_audit_model()
 
     _, encoded_img = cv2.imencode(".jpg", bgr_img)
     img_bytes = encoded_img.tobytes()
@@ -1433,7 +1457,7 @@ Provide a concise, professional assessment report formatted in clean Markdown:
         if GEMINI_SDK == "genai":
             client = genai.Client(api_key=resolved_key)
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=model_name,
                 contents=[
                     types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
                     prompt,
@@ -1442,9 +1466,9 @@ Provide a concise, professional assessment report formatted in clean Markdown:
             return response.text
         elif GEMINI_SDK == "legacy":
             genai_legacy.configure(api_key=resolved_key)
-            model = genai_legacy.GenerativeModel("gemini-1.5-flash")
+            model = genai_legacy.GenerativeModel(model_name)
             response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": img_bytes}])
             return response.text
     except Exception as e:
-        return f"⚠️ Gemini API Notice: {str(e)}"
+        return f"⚠️ AI audit notice: {str(e)}"
     return None
