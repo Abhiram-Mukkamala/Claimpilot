@@ -1470,5 +1470,5 @@ Provide a concise, professional assessment report formatted in clean Markdown:
             response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": img_bytes}])
             return response.text
     except Exception as e:
-        return f"⚠️ AI audit notice: {str(e)}"
+        return f"⚠️ Gemini audit notice: {str(e)}"
     return None
