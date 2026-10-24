@@ -8,4 +8,5 @@ torch>=2.3.0
 torchvision>=0.18.0
 ultralytics>=8.3.0
 transformers>=4.45.0
+geffnet>=1.0.2
 google-genai>=0.3.0

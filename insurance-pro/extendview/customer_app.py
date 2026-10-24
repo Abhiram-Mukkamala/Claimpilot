@@ -286,14 +286,14 @@ def run_customer_extendview(set_page_cfg: bool = True):
             st.markdown("#### ③ 3D Damage Deformation & Depth Map (ΔZ)")
             st.caption("Drag to rotate the 3D surface mesh or hover to inspect millimeter depth across the dent.")
             v_tab1, v_tab2, v_tab3 = st.tabs([
+                "2D Heatmap (ΔZ)",
                 "Interactive 3D Surface Mesh",
-                "2D Depth Heatmap (ΔZ)",
                 "Dent Cross-Section Profile",
             ])
             with v_tab1:
-                st.plotly_chart(plot_3d_mesh(depth_map, delta_depth), use_container_width=True)
-            with v_tab2:
                 st.plotly_chart(plot_depth_heatmap(delta_depth), use_container_width=True)
+            with v_tab2:
+                st.plotly_chart(plot_3d_mesh(depth_map), use_container_width=True)
             with v_tab3:
                 st.plotly_chart(plot_depth_cross_section(delta_depth, mask, mm_per_px), use_container_width=True)
 

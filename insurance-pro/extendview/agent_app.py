@@ -433,14 +433,14 @@ def run_agent_extendview(set_page_cfg: bool = True):
                     f"Peak Indentation: **{metrics['max_depth_mm']} mm** · Scale: **{mm_per_px:.4f} mm/px** · Calibration: **{calib_tier}**"
                 )
                 dt1, dt2, dt3 = st.tabs([
-                    "2D Heatmap (ΔZ mm)",
+                    "2D Heatmap (ΔZ)",
                     "Interactive 3D Surface Mesh",
                     "Dent Basin Cross-Section Graph",
                 ])
                 with dt1:
                     st.plotly_chart(plot_depth_heatmap(delta_depth), use_container_width=True)
                 with dt2:
-                    st.plotly_chart(plot_3d_mesh(depth_map, delta_depth), use_container_width=True)
+                    st.plotly_chart(plot_3d_mesh(depth_map), use_container_width=True)
                 with dt3:
                     st.plotly_chart(plot_depth_cross_section(delta_depth, mask, mm_per_px), use_container_width=True)
 

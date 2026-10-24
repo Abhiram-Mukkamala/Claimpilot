@@ -1144,66 +1144,29 @@ PLOTLY_DARK_LAYOUT = dict(
 )
 
 
-def plot_depth_heatmap(delta_depth: np.ndarray) -> go.Figure:
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=delta_depth,
-            colorscale="Turbo",
-            colorbar=dict(
-                title=dict(text="ΔZ (mm)", font=dict(size=11, color="#9BA3AF")),
-                thickness=14,
-                tickfont=dict(size=10, color="#9BA3AF"),
-            ),
-            hovertemplate="<b>Pixel</b> (%{x}, %{y})<br><b>Deformation ΔZ:</b> %{z:.2f} mm<extra></extra>",
-        )
-    )
+def plot_depth_heatmap(depth_map: np.ndarray) -> go.Figure:
+    fig = go.Figure(data=go.Heatmap(
+        z=depth_map, colorscale="Jet",
+        colorbar=dict(title="mm", thickness=14),
+        hovertemplate="x:%{x}  y:%{y}<br>ΔZ depth: %{z:.2f} mm<extra></extra>",
+    ))
     fig.update_yaxes(autorange="reversed", visible=False)
     fig.update_xaxes(visible=False)
-    fig.update_layout(
-        **PLOTLY_DARK_LAYOUT,
-        margin=dict(l=0, r=0, t=8, b=0),
-        height=350,
-    )
+    fig.update_layout(margin=dict(l=0, r=0, t=8, b=0), height=340)
     return fig
 
 
 def plot_3d_mesh(depth_map: np.ndarray, delta_depth: Optional[np.ndarray] = None) -> go.Figure:
-    surface_data = delta_depth if delta_depth is not None else depth_map
-    z_sub = surface_data[::3, ::3]
-    fig = go.Figure(
-        data=[
-            go.Surface(
-                z=z_sub,
-                colorscale="Turbo",
-                colorbar=dict(
-                    title=dict(text="mm", font=dict(size=11, color="#9BA3AF")),
-                    thickness=12,
-                    tickfont=dict(size=10, color="#9BA3AF"),
-                ),
-                contours=dict(
-                    z=dict(show=True, usecolormap=True, highlightcolor="#22C55E", project_z=True)
-                ),
-                hovertemplate="<b>Span X:</b> %{x}<br><b>Span Y:</b> %{y}<br><b>Deformation:</b> %{z:.2f} mm<extra></extra>",
-            )
-        ]
-    )
+    z_sub = depth_map[::4, ::4]
+    fig = go.Figure(data=[
+        go.Surface(z=z_sub, colorscale="Jet", colorbar=dict(title="mm", thickness=12))
+    ])
     fig.update_layout(
-        **PLOTLY_DARK_LAYOUT,
         scene=dict(
-            bgcolor="rgba(7,7,9,0.85)",
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            zaxis=dict(
-                title="ΔZ Indentation (mm)",
-                gridcolor="rgba(255,255,255,0.08)",
-                zerolinecolor="rgba(255,255,255,0.15)",
-                color="#9BA3AF",
-            ),
-            camera=dict(eye=dict(x=1.25, y=-1.25, z=0.85)),
-            aspectratio=dict(x=1, y=1, z=0.40),
+            xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(title="mm"),
+            camera=dict(eye=dict(x=1.2, y=-1.2, z=0.8)), aspectratio=dict(x=1, y=1, z=0.35)
         ),
-        margin=dict(l=0, r=0, t=8, b=0),
-        height=350,
+        margin=dict(l=0, r=0, t=10, b=0), height=340
     )
     return fig
 
